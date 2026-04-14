@@ -276,7 +276,11 @@ impl VaultRolesManager {
     pub fn set_vault_fee_receiver(env: Env, vault: Address, caller: Address, new_fee_receiver: Address) {
         extend_instance_ttl(&env);
         require_vault_admin(&env, &vault);
-        call_vault(&env, &vault, "set_fee_receiver", vec![&env, caller.into_val(&env), new_fee_receiver.into_val(&env)]);
+        // The vault's set_fee_receiver requires `caller` to be the Manager or VaultFeeReceiver.
+        // The proxy holds the Manager role, so we pass the proxy address as the caller.
+        let _ = caller; // caller is the vault admin, used for require_vault_admin auth above
+        let proxy = env.current_contract_address();
+        call_vault(&env, &vault, "set_fee_receiver", vec![&env, proxy.into_val(&env), new_fee_receiver.into_val(&env)]);
     }
 
     pub fn set_vault_emergency_manager(env: Env, vault: Address, emergency_manager: Address) {

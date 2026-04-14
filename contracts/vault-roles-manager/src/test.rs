@@ -425,3 +425,213 @@ fn test_lock_fees_nonexistent_vault() {
     let random_vault = Address::generate(&env);
     client.lock_fees(&fee_manager, &random_vault, &Some(100u32));
 }
+
+// ---------------------------------------------------------------------------
+// Integration tests using real vault WASM
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod integration_tests {
+    use super::*;
+    use soroban_sdk::{Map, String};
+
+    mod defindex_vault {
+        soroban_sdk::contractimport!(file = "../defindex_vault.optimized.wasm");
+    }
+
+    fn setup_real_vault(env: &Env, manager: &Address) -> Address {
+        let token_admin = Address::generate(env);
+        let token_contract = env.register_stellar_asset_contract_v2(token_admin);
+        let token_address = token_contract.address();
+
+        let assets = soroban_sdk::vec![
+            env,
+            defindex_vault::AssetStrategySet {
+                address: token_address,
+                strategies: soroban_sdk::vec![env],
+            }
+        ];
+
+        let emergency_mgr = Address::generate(env);
+        let fee_receiver = Address::generate(env);
+        let rebalance_mgr = Address::generate(env);
+
+        let mut roles: Map<u32, Address> = Map::new(env);
+        roles.set(0u32, emergency_mgr);
+        roles.set(1u32, fee_receiver);
+        roles.set(2u32, manager.clone());
+        roles.set(3u32, rebalance_mgr);
+
+        let vault_fee: u32 = 100;
+        let protocol_receiver = Address::generate(env);
+        let protocol_rate: u32 = 2000;
+        let router = Address::generate(env);
+
+        let mut name_symbol: Map<String, String> = Map::new(env);
+        name_symbol.set(
+            String::from_str(env, "name"),
+            String::from_str(env, "TestVault"),
+        );
+        name_symbol.set(
+            String::from_str(env, "symbol"),
+            String::from_str(env, "TV"),
+        );
+
+        env.register(
+            defindex_vault::WASM,
+            (assets, roles, vault_fee, protocol_receiver, protocol_rate, router, name_symbol, false),
+        )
+    }
+
+    #[test]
+    fn test_integration_register_vault() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let (client, _admin, _fee_manager) = setup(&env);
+
+        let partner = Address::generate(&env);
+        let vault_id = setup_real_vault(&env, &partner);
+
+        let config = VaultConfig {
+            admin: partner.clone(),
+            target_apy_bps: 400,
+            max_fee_bps: 5000,
+            min_fee_bps: 0,
+        };
+
+        client.register_vault(&partner, &vault_id, &config);
+
+        let vault_client = defindex_vault::Client::new(&env, &vault_id);
+        assert_eq!(vault_client.get_manager(), client.address);
+
+        let stored = client.get_vault_config(&vault_id);
+        assert_eq!(stored.admin, partner);
+        assert_eq!(stored.target_apy_bps, 400);
+    }
+
+    #[test]
+    fn test_integration_unregister_vault() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let (client, _admin, _fee_manager) = setup(&env);
+        let partner = Address::generate(&env);
+        let vault_id = setup_real_vault(&env, &partner);
+
+        let config = VaultConfig {
+            admin: partner.clone(),
+            target_apy_bps: 400,
+            max_fee_bps: 5000,
+            min_fee_bps: 0,
+        };
+        client.register_vault(&partner, &vault_id, &config);
+
+        client.unregister_vault(&vault_id);
+
+        let vault_client = defindex_vault::Client::new(&env, &vault_id);
+        assert_eq!(vault_client.get_manager(), partner);
+    }
+
+    #[test]
+    fn test_integration_lock_fees() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let (client, _admin, fee_manager) = setup(&env);
+        let partner = Address::generate(&env);
+        let vault_id = setup_real_vault(&env, &partner);
+
+        let config = VaultConfig {
+            admin: partner.clone(),
+            target_apy_bps: 400,
+            max_fee_bps: 5000,
+            min_fee_bps: 0,
+        };
+        client.register_vault(&partner, &vault_id, &config);
+
+        // Lock fees with a new fee rate; with no strategies it should succeed
+        client.lock_fees(&fee_manager, &vault_id, &Some(2000u32));
+
+        let vault_client = defindex_vault::Client::new(&env, &vault_id);
+        let (vault_fee, _protocol_fee) = vault_client.get_fees();
+        assert_eq!(vault_fee, 2000);
+    }
+
+    #[test]
+    fn test_integration_distribute_fees() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let (client, _admin, fee_manager) = setup(&env);
+        let partner = Address::generate(&env);
+        let vault_id = setup_real_vault(&env, &partner);
+
+        let config = VaultConfig {
+            admin: partner.clone(),
+            target_apy_bps: 400,
+            max_fee_bps: 5000,
+            min_fee_bps: 0,
+        };
+        client.register_vault(&partner, &vault_id, &config);
+
+        // With no strategies and no locked fees, distribute should succeed
+        client.distribute_fees(&fee_manager, &vault_id);
+    }
+
+    #[test]
+    fn test_integration_set_roles_through_proxy() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let (client, _admin, _fee_manager) = setup(&env);
+        let partner = Address::generate(&env);
+        let vault_id = setup_real_vault(&env, &partner);
+
+        let config = VaultConfig {
+            admin: partner.clone(),
+            target_apy_bps: 400,
+            max_fee_bps: 5000,
+            min_fee_bps: 0,
+        };
+        client.register_vault(&partner, &vault_id, &config);
+
+        let vault_client = defindex_vault::Client::new(&env, &vault_id);
+
+        let new_em = Address::generate(&env);
+        client.set_vault_emergency_manager(&vault_id, &new_em);
+        assert_eq!(vault_client.get_emergency_manager(), new_em);
+
+        let new_rm = Address::generate(&env);
+        client.set_vault_rebalance_manager(&vault_id, &new_rm);
+        assert_eq!(vault_client.get_rebalance_manager(), new_rm);
+
+        let new_fr = Address::generate(&env);
+        client.set_vault_fee_receiver(&vault_id, &partner, &new_fr);
+        assert_eq!(vault_client.get_fee_receiver(), new_fr);
+    }
+
+    #[test]
+    fn test_integration_set_vault_manager_returns_control() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let (client, _admin, _fee_manager) = setup(&env);
+        let partner = Address::generate(&env);
+        let vault_id = setup_real_vault(&env, &partner);
+
+        let config = VaultConfig {
+            admin: partner.clone(),
+            target_apy_bps: 400,
+            max_fee_bps: 5000,
+            min_fee_bps: 0,
+        };
+        client.register_vault(&partner, &vault_id, &config);
+
+        let new_manager = Address::generate(&env);
+        client.set_vault_manager(&vault_id, &new_manager);
+
+        let vault_client = defindex_vault::Client::new(&env, &vault_id);
+        assert_eq!(vault_client.get_manager(), new_manager);
+    }
+}
