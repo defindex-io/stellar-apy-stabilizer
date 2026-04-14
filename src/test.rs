@@ -315,9 +315,9 @@ fn test_set_vault_manager_removes_config() {
 fn test_set_vault_fee_receiver() {
     let env = Env::default();
     env.mock_all_auths();
-    let (client, _, _, vault_admin, vault_id) = setup_with_vault(&env);
+    let (client, _, _, _, vault_id) = setup_with_vault(&env);
     let receiver = Address::generate(&env);
-    client.set_vault_fee_receiver(&vault_id, &vault_admin, &receiver);
+    client.set_vault_fee_receiver(&vault_id, &receiver);
 }
 
 #[test]
@@ -436,7 +436,7 @@ mod integration_tests {
     use soroban_sdk::{Map, String};
 
     mod defindex_vault {
-        soroban_sdk::contractimport!(file = "../defindex_vault.optimized.wasm");
+        soroban_sdk::contractimport!(file = "contracts/defindex_vault.optimized.wasm");
     }
 
     fn setup_real_vault(env: &Env, manager: &Address) -> Address {
@@ -607,7 +607,7 @@ mod integration_tests {
         assert_eq!(vault_client.get_rebalance_manager(), new_rm);
 
         let new_fr = Address::generate(&env);
-        client.set_vault_fee_receiver(&vault_id, &partner, &new_fr);
+        client.set_vault_fee_receiver(&vault_id, &new_fr);
         assert_eq!(vault_client.get_fee_receiver(), new_fr);
     }
 
