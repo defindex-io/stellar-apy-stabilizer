@@ -3,7 +3,7 @@
 use soroban_sdk::{
     contract, contractimpl,
     testutils::Address as _,
-    Address, Env, Symbol,
+    Address, BytesN, Env, Symbol,
 };
 
 use crate::{VaultRolesManager, VaultRolesManagerClient, VaultConfig};
@@ -45,6 +45,14 @@ impl MockVault {
     pub fn lock_fees(_env: Env, _new_fee_bps: Option<u32>) {}
     pub fn distribute_fees(_env: Env, _caller: Address) {}
     pub fn release_fees(_env: Env, _strategy: Address, _amount: i128) {}
+
+    pub fn upgrade(_env: Env, _new_wasm_hash: BytesN<32>) {}
+    pub fn set_fee_receiver(_env: Env, _caller: Address, _new_fee_receiver: Address) {}
+    pub fn set_emergency_manager(_env: Env, _emergency_manager: Address) {}
+    pub fn set_rebalance_manager(_env: Env, _new_rebalance_manager: Address) {}
+    pub fn rescue(_env: Env, _strategy_address: Address, _caller: Address) {}
+    pub fn pause_strategy(_env: Env, _strategy_address: Address, _caller: Address) {}
+    pub fn unpause_strategy(_env: Env, _strategy_address: Address, _caller: Address) {}
 }
 
 // ---------------------------------------------------------------------------
@@ -277,4 +285,143 @@ fn test_set_fee_bounds_invalid() {
         setup_with_vault(&env);
     // max > 10_000 → invalid
     client.set_fee_bounds(&vault_id, &0u32, &10_001u32);
+}
+
+// ---------------------------------------------------------------------------
+// Passthrough function tests (Task 6)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_upgrade_vault() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _, _, vault_id) = setup_with_vault(&env);
+    let fake_hash = BytesN::from_array(&env, &[0u8; 32]);
+    client.upgrade_vault(&vault_id, &fake_hash);
+}
+
+#[test]
+fn test_set_vault_manager_removes_config() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _, _, vault_id) = setup_with_vault(&env);
+    let new_manager = Address::generate(&env);
+    client.set_vault_manager(&vault_id, &new_manager);
+    let mock_client = MockVaultClient::new(&env, &vault_id);
+    assert_eq!(mock_client.get_manager(), new_manager);
+}
+
+#[test]
+fn test_set_vault_fee_receiver() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _, vault_admin, vault_id) = setup_with_vault(&env);
+    let receiver = Address::generate(&env);
+    client.set_vault_fee_receiver(&vault_id, &vault_admin, &receiver);
+}
+
+#[test]
+fn test_set_vault_emergency_manager() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _, _, vault_id) = setup_with_vault(&env);
+    let em = Address::generate(&env);
+    client.set_vault_emergency_manager(&vault_id, &em);
+}
+
+#[test]
+fn test_set_vault_rebalance_manager() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _, _, vault_id) = setup_with_vault(&env);
+    let rm = Address::generate(&env);
+    client.set_vault_rebalance_manager(&vault_id, &rm);
+}
+
+#[test]
+fn test_rescue_vault() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _, _, vault_id) = setup_with_vault(&env);
+    let strategy = Address::generate(&env);
+    client.rescue_vault(&vault_id, &strategy);
+}
+
+#[test]
+fn test_pause_unpause_vault_strategy() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _, _, vault_id) = setup_with_vault(&env);
+    let strategy = Address::generate(&env);
+    client.pause_vault_strategy(&vault_id, &strategy);
+    client.unpause_vault_strategy(&vault_id, &strategy);
+}
+
+// ---------------------------------------------------------------------------
+// Authorization edge case tests (Task 7)
+// ---------------------------------------------------------------------------
+
+#[test]
+#[should_panic(expected = "Error(Contract, #100)")]
+fn test_lock_fees_unauthorized_caller() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _, _, vault_id) = setup_with_vault(&env);
+    // Random address is neither fee_manager nor vault admin
+    let attacker = Address::generate(&env);
+    client.lock_fees(&attacker, &vault_id, &Some(100u32));
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #111)")]
+fn test_unregister_nonexistent_vault() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _) = setup(&env);
+    let random_vault = Address::generate(&env);
+    client.unregister_vault(&random_vault);
+}
+
+#[test]
+fn test_vault_isolation() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _) = setup(&env);
+
+    let partner_a = Address::generate(&env);
+    let partner_b = Address::generate(&env);
+    let vault_a = env.register(MockVault, (&client.address,));
+    let vault_b = env.register(MockVault, (&client.address,));
+
+    let config_a = VaultConfig {
+        admin: partner_a.clone(),
+        target_apy_bps: 400,
+        max_fee_bps: 5000,
+        min_fee_bps: 0,
+    };
+    let config_b = VaultConfig {
+        admin: partner_b.clone(),
+        target_apy_bps: 600,
+        max_fee_bps: 8000,
+        min_fee_bps: 100,
+    };
+    client.register_vault(&partner_a, &vault_a, &config_a);
+    client.register_vault(&partner_b, &vault_b, &config_b);
+
+    let stored_a = client.get_vault_config(&vault_a);
+    let stored_b = client.get_vault_config(&vault_b);
+    assert_eq!(stored_a.target_apy_bps, 400);
+    assert_eq!(stored_b.target_apy_bps, 600);
+    assert_eq!(stored_a.admin, partner_a);
+    assert_eq!(stored_b.admin, partner_b);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #111)")]
+fn test_lock_fees_nonexistent_vault() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, fee_manager) = setup(&env);
+    let random_vault = Address::generate(&env);
+    client.lock_fees(&fee_manager, &random_vault, &Some(100u32));
 }

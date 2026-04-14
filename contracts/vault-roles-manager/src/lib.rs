@@ -1,5 +1,5 @@
 #![no_std]
-use soroban_sdk::{contract, contractimpl, panic_with_error, vec, Address, Env, IntoVal, Symbol};
+use soroban_sdk::{contract, contractimpl, panic_with_error, vec, Address, BytesN, Env, IntoVal, Symbol};
 
 mod error;
 mod events;
@@ -252,5 +252,63 @@ impl VaultRolesManager {
             min_fee_bps: config.min_fee_bps,
         }
         .publish(&env);
+    }
+
+    // --- Passthrough functions ---
+
+    pub fn upgrade_vault(env: Env, vault: Address, new_wasm_hash: BytesN<32>) {
+        extend_instance_ttl(&env);
+        require_vault_admin(&env, &vault);
+        call_vault(&env, &vault, "upgrade", vec![&env, new_wasm_hash.into_val(&env)]);
+    }
+
+    /// Sets the vault's manager. If the new manager is not this proxy,
+    /// the vault config is removed since the proxy no longer controls the vault.
+    pub fn set_vault_manager(env: Env, vault: Address, new_manager: Address) {
+        extend_instance_ttl(&env);
+        require_vault_admin(&env, &vault);
+        call_vault(&env, &vault, "set_manager", vec![&env, new_manager.clone().into_val(&env)]);
+        if new_manager != env.current_contract_address() {
+            storage::remove_vault_config(&env, &vault);
+        }
+    }
+
+    pub fn set_vault_fee_receiver(env: Env, vault: Address, caller: Address, new_fee_receiver: Address) {
+        extend_instance_ttl(&env);
+        require_vault_admin(&env, &vault);
+        call_vault(&env, &vault, "set_fee_receiver", vec![&env, caller.into_val(&env), new_fee_receiver.into_val(&env)]);
+    }
+
+    pub fn set_vault_emergency_manager(env: Env, vault: Address, emergency_manager: Address) {
+        extend_instance_ttl(&env);
+        require_vault_admin(&env, &vault);
+        call_vault(&env, &vault, "set_emergency_manager", vec![&env, emergency_manager.into_val(&env)]);
+    }
+
+    pub fn set_vault_rebalance_manager(env: Env, vault: Address, rebalance_manager: Address) {
+        extend_instance_ttl(&env);
+        require_vault_admin(&env, &vault);
+        call_vault(&env, &vault, "set_rebalance_manager", vec![&env, rebalance_manager.into_val(&env)]);
+    }
+
+    pub fn rescue_vault(env: Env, vault: Address, strategy: Address) {
+        extend_instance_ttl(&env);
+        require_vault_admin(&env, &vault);
+        let proxy = env.current_contract_address();
+        call_vault(&env, &vault, "rescue", vec![&env, strategy.into_val(&env), proxy.into_val(&env)]);
+    }
+
+    pub fn pause_vault_strategy(env: Env, vault: Address, strategy: Address) {
+        extend_instance_ttl(&env);
+        require_vault_admin(&env, &vault);
+        let proxy = env.current_contract_address();
+        call_vault(&env, &vault, "pause_strategy", vec![&env, strategy.into_val(&env), proxy.into_val(&env)]);
+    }
+
+    pub fn unpause_vault_strategy(env: Env, vault: Address, strategy: Address) {
+        extend_instance_ttl(&env);
+        require_vault_admin(&env, &vault);
+        let proxy = env.current_contract_address();
+        call_vault(&env, &vault, "unpause_strategy", vec![&env, strategy.into_val(&env), proxy.into_val(&env)]);
     }
 }
