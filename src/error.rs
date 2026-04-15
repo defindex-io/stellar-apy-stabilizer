@@ -10,5 +10,4 @@ pub enum ContractError {
     FeeOutOfBounds = 120,
     InvalidFeeBounds = 121,
     InvalidTargetApy = 122,
-    VaultCallFailed = 130,
 }

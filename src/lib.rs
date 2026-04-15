@@ -94,6 +94,11 @@ impl VaultRolesManager {
 
     // --- Registration ---
 
+    /// Registers a vault with the proxy. The `admin` must be the vault's current
+    /// Manager (enforced by the vault's `set_manager` call). `config.admin` is the
+    /// address that will control this vault through the proxy going forward - it
+    /// does NOT need to match `admin`, allowing partners to delegate to a different
+    /// operational address.
     pub fn register_vault(
         env: Env,
         admin: Address,
@@ -264,10 +269,16 @@ impl VaultRolesManager {
     /// the vault config is removed since the proxy no longer controls the vault.
     pub fn set_vault_manager(env: Env, vault: Address, new_manager: Address) {
         extend_instance_ttl(&env);
-        require_vault_admin(&env, &vault);
+        let config = require_vault_admin(&env, &vault);
         call_vault(&env, &vault, "set_manager", vec![&env, new_manager.clone().into_val(&env)]);
         if new_manager != env.current_contract_address() {
             storage::remove_vault_config(&env, &vault);
+
+            events::VaultUnregistered {
+                vault,
+                admin: config.admin,
+            }
+            .publish(&env);
         }
     }
 
