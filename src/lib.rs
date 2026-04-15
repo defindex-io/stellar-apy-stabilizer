@@ -12,17 +12,18 @@ use storage::extend_instance_ttl;
 
 // --- Auth helpers (private) ---
 
-fn require_fee_manager_or_vault_admin(env: &Env, caller: &Address, vault: &Address) {
+fn require_fee_manager_or_vault_admin(env: &Env, caller: &Address, vault: &Address) -> VaultConfig {
+    let config = storage::get_vault_config(env, vault)
+        .unwrap_or_else(|| panic_with_error!(env, ContractError::VaultNotRegistered));
+
     let fee_manager = storage::get_fee_manager(env);
     if *caller == fee_manager {
         caller.require_auth();
-        return;
+        return config;
     }
-    let config = storage::get_vault_config(env, vault)
-        .unwrap_or_else(|| panic_with_error!(env, ContractError::VaultNotRegistered));
     if *caller == config.admin {
         caller.require_auth();
-        return;
+        return config;
     }
     panic_with_error!(env, ContractError::Unauthorized);
 }
@@ -158,10 +159,7 @@ impl VaultRolesManager {
         new_fee_bps: Option<u32>,
     ) {
         extend_instance_ttl(&env);
-        require_fee_manager_or_vault_admin(&env, &caller, &vault);
-
-        let config = storage::get_vault_config(&env, &vault)
-            .unwrap_or_else(|| panic_with_error!(&env, ContractError::VaultNotRegistered));
+        let config = require_fee_manager_or_vault_admin(&env, &caller, &vault);
 
         if let Some(fee) = new_fee_bps {
             if fee < config.min_fee_bps || fee > config.max_fee_bps {
@@ -187,7 +185,7 @@ impl VaultRolesManager {
 
     pub fn distribute_fees(env: Env, caller: Address, vault: Address) {
         extend_instance_ttl(&env);
-        require_fee_manager_or_vault_admin(&env, &caller, &vault);
+        let _ = require_fee_manager_or_vault_admin(&env, &caller, &vault);
 
         let proxy = env.current_contract_address();
         call_vault(
