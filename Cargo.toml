@@ -1,17 +1,9 @@
-[package]
-name = "fee-proxy"
-version = "0.1.0"
-edition = "2021"
+[workspace]
+members = ["contracts/*"]
+resolver = "2"
 
-[lib]
-crate-type = ["cdylib"]
-doctest = false
-
-[dependencies]
+[workspace.dependencies]
 soroban-sdk = "25.3.1"
-
-[dev-dependencies]
-soroban-sdk = { version = "25.3.1", features = ["testutils"] }
 
 [profile.release]
 opt-level = "z"

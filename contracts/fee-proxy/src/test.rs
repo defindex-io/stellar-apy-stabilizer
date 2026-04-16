@@ -436,7 +436,7 @@ mod integration_tests {
     use soroban_sdk::{Map, String};
 
     mod defindex_vault {
-        soroban_sdk::contractimport!(file = "contracts/defindex_vault.optimized.wasm");
+        soroban_sdk::contractimport!(file = "../../external-contracts/defindex_vault.optimized.wasm");
     }
 
     fn setup_real_vault(env: &Env, manager: &Address) -> Address {
