@@ -121,4 +121,33 @@ impl BoostTreasury {
         }
         .publish(&env);
     }
+
+    pub fn update_campaign(env: Env, vault: Address, active: bool) {
+        extend_instance_ttl(&env);
+        require_admin(&env);
+
+        let mut campaign = storage::get_campaign(&env, &vault)
+            .unwrap_or_else(|| panic_with_error!(&env, ContractError::CampaignNotRegistered));
+
+        campaign.active = active;
+        storage::set_campaign(&env, &vault, &campaign);
+
+        events::CampaignUpdated { vault, active }.publish(&env);
+    }
+
+    pub fn unregister_campaign(env: Env, vault: Address) {
+        extend_instance_ttl(&env);
+        require_admin(&env);
+
+        let campaign = storage::get_campaign(&env, &vault)
+            .unwrap_or_else(|| panic_with_error!(&env, ContractError::CampaignNotRegistered));
+
+        if campaign.available() != 0 {
+            panic_with_error!(&env, ContractError::CampaignHasBalance);
+        }
+
+        storage::remove_campaign(&env, &vault);
+
+        events::CampaignUnregistered { vault }.publish(&env);
+    }
 }

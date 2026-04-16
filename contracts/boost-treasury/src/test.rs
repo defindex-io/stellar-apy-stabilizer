@@ -196,3 +196,58 @@ fn test_register_campaign_multi_asset_rejected() {
     let multi_vault = env.register(MultiAssetMockVault, (&asset_a, &asset_b));
     client.register_campaign(&multi_vault);
 }
+
+// ---------------------------------------------------------------------------
+// update_campaign tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_update_campaign_toggle_active() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _, vault, _, _, _) = setup_with_campaign(&env);
+
+    client.update_campaign(&vault, &false);
+    let campaign = client.get_campaign(&vault);
+    assert_eq!(campaign.active, false);
+
+    client.update_campaign(&vault, &true);
+    let campaign = client.get_campaign(&vault);
+    assert_eq!(campaign.active, true);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #111)")]
+fn test_update_campaign_not_registered() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _) = setup(&env);
+    let random_vault = Address::generate(&env);
+    client.update_campaign(&random_vault, &false);
+}
+
+// ---------------------------------------------------------------------------
+// unregister_campaign tests
+// ---------------------------------------------------------------------------
+
+#[test]
+#[should_panic(expected = "Error(Contract, #111)")]
+fn test_unregister_campaign() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _, vault, _, _, _) = setup_with_campaign(&env);
+
+    client.unregister_campaign(&vault);
+    // After unregister, get_campaign should panic with CampaignNotRegistered
+    client.get_campaign(&vault);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #111)")]
+fn test_unregister_campaign_not_registered() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _) = setup(&env);
+    let random_vault = Address::generate(&env);
+    client.unregister_campaign(&random_vault);
+}
