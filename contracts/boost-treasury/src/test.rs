@@ -456,3 +456,57 @@ fn test_unregister_campaign_with_balance_rejected() {
     let (client, _, _, vault, _) = setup_funded_campaign(&env, 100);
     client.unregister_campaign(&vault);
 }
+
+// ---------------------------------------------------------------------------
+// Authorization failure tests
+// ---------------------------------------------------------------------------
+//
+// Without env.mock_all_auths(), the Soroban host enforces real auth. Calls
+// with `mock_auths(&[])` fail with an auth error.
+
+#[test]
+#[should_panic]
+fn test_set_manager_requires_admin_auth() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, _manager) = setup(&env);
+    let new_manager = Address::generate(&env);
+
+    // Clear auth mocks for this call — admin hasn't signed
+    client.mock_auths(&[]).set_manager(&new_manager);
+}
+
+#[test]
+#[should_panic]
+fn test_boost_requires_manager_auth() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _, vault, _) = setup_funded_campaign(&env, 1_000);
+
+    // Clear auth mocks — manager hasn't signed
+    client.mock_auths(&[]).boost(&vault, &100);
+}
+
+#[test]
+#[should_panic]
+fn test_deposit_requires_caller_auth() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _, vault, _, _, _) = setup_with_campaign(&env);
+    let depositor = Address::generate(&env);
+
+    // Clear auth mocks — depositor hasn't signed
+    client.mock_auths(&[]).deposit(&depositor, &vault, &100);
+}
+
+#[test]
+#[should_panic]
+fn test_register_campaign_requires_admin_auth() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, _manager) = setup(&env);
+    let (_, _, asset) = create_test_token(&env);
+    let vault = register_mock_vault(&env, &asset);
+
+    client.mock_auths(&[]).register_campaign(&vault);
+}
