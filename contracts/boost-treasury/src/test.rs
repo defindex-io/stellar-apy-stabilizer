@@ -510,3 +510,43 @@ fn test_register_campaign_requires_admin_auth() {
 
     client.mock_auths(&[]).register_campaign(&vault);
 }
+
+// ---------------------------------------------------------------------------
+// Accounting invariant: available() = total_deposited - total_boosted - total_withdrawn
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_accounting_invariant_across_operations() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _, vault, _asset, token_admin, _token_client) =
+        setup_with_campaign(&env);
+
+    let depositor_a = Address::generate(&env);
+    let depositor_b = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    token_admin.mint(&depositor_a, &10_000);
+    token_admin.mint(&depositor_b, &5_000);
+
+    // deposit 3000 from A
+    client.deposit(&depositor_a, &vault, &3_000);
+    // deposit 2000 from B
+    client.deposit(&depositor_b, &vault, &2_000);
+    // boost 1500 to vault
+    client.boost(&vault, &1_500);
+    // transfer 500 to recipient
+    client.transfer(&vault, &500, &recipient);
+    // deposit another 1000 from A
+    client.deposit(&depositor_a, &vault, &1_000);
+
+    let campaign = client.get_campaign(&vault);
+    assert_eq!(campaign.total_deposited, 6_000);
+    assert_eq!(campaign.total_boosted, 1_500);
+    assert_eq!(campaign.total_withdrawn, 500);
+    assert_eq!(campaign.available(), 4_000);
+    // Invariant:
+    assert_eq!(
+        campaign.available(),
+        campaign.total_deposited - campaign.total_boosted - campaign.total_withdrawn
+    );
+}
