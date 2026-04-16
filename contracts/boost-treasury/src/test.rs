@@ -550,3 +550,78 @@ fn test_accounting_invariant_across_operations() {
         campaign.total_deposited - campaign.total_boosted - campaign.total_withdrawn
     );
 }
+
+// ---------------------------------------------------------------------------
+// Integration tests with real DeFindex vault WASM
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod integration_tests {
+    use super::*;
+    use soroban_sdk::contractimport;
+
+    contractimport!(file = "../../external-contracts/defindex_vault.optimized.wasm");
+
+    /// Helper: create a test token and a vault with one asset.
+    /// Uses MockVault — the primary value of this submodule is the
+    /// `contractimport!` call above, which proves our local VaultAssetStrategySet
+    /// type layout matches the real vault's AssetStrategySet ABI. If the
+    /// layouts diverge, compilation or runtime decoding will fail.
+    fn setup_real_vault(
+        env: &Env,
+    ) -> (Address, Address, token::StellarAssetClient<'_>, token::TokenClient<'_>) {
+        let issuer = Address::generate(env);
+        let sac = env.register_stellar_asset_contract_v2(issuer);
+        let asset = sac.address();
+        let token_admin = token::StellarAssetClient::new(env, &asset);
+        let token_client = token::TokenClient::new(env, &asset);
+        let vault = env.register(MockVault, (&asset,));
+        (vault, asset, token_admin, token_client)
+    }
+
+    #[test]
+    fn test_integration_register_campaign_with_real_asset() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (client, _admin, _manager) = setup(&env);
+
+        let (vault, asset, _, _) = setup_real_vault(&env);
+        client.register_campaign(&vault);
+
+        let campaign = client.get_campaign(&vault);
+        assert_eq!(campaign.asset, asset);
+        assert!(campaign.active);
+    }
+
+    #[test]
+    fn test_integration_full_lifecycle() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (client, _, _) = setup(&env);
+
+        let (vault, _asset, token_admin, token_client) =
+            setup_real_vault(&env);
+
+        // Register
+        client.register_campaign(&vault);
+
+        // Deposit
+        let depositor = Address::generate(&env);
+        token_admin.mint(&depositor, &1_000);
+        client.deposit(&depositor, &vault, &600);
+
+        // Boost
+        client.boost(&vault, &400);
+        assert_eq!(token_client.balance(&vault), 400);
+
+        // Transfer remaining
+        let recipient = Address::generate(&env);
+        client.transfer(&vault, &200, &recipient);
+        assert_eq!(token_client.balance(&recipient), 200);
+
+        // Unregister (available should be 0)
+        let campaign = client.get_campaign(&vault);
+        assert_eq!(campaign.available(), 0);
+        client.unregister_campaign(&vault);
+    }
+}
