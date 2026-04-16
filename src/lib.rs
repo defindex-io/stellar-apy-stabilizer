@@ -50,10 +50,10 @@ fn call_vault(env: &Env, vault: &Address, fn_name: &str, args: soroban_sdk::Vec<
 }
 
 #[contract]
-pub struct VaultRolesManager;
+pub struct FeeProxy;
 
 #[contractimpl]
-impl VaultRolesManager {
+impl FeeProxy {
     pub fn __constructor(env: Env, admin: Address, fee_manager: Address) {
         admin.require_auth();
         storage::set_admin(&env, &admin);

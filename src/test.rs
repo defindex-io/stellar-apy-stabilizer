@@ -6,7 +6,7 @@ use soroban_sdk::{
     Address, BytesN, Env, Symbol,
 };
 
-use crate::{VaultRolesManager, VaultRolesManagerClient, VaultConfig};
+use crate::{FeeProxy, FeeProxyClient, VaultConfig};
 
 // ---------------------------------------------------------------------------
 // Mock vault
@@ -59,20 +59,20 @@ impl MockVault {
 // Helpers
 // ---------------------------------------------------------------------------
 
-fn setup(env: &Env) -> (VaultRolesManagerClient<'_>, Address, Address) {
+fn setup(env: &Env) -> (FeeProxyClient<'_>, Address, Address) {
     let admin = Address::generate(env);
     let fee_manager = Address::generate(env);
     let contract_id = env.register(
-        VaultRolesManager,
+        FeeProxy,
         (&admin, &fee_manager),
     );
-    let client = VaultRolesManagerClient::new(env, &contract_id);
+    let client = FeeProxyClient::new(env, &contract_id);
     (client, admin, fee_manager)
 }
 
 fn setup_with_vault(
     env: &Env,
-) -> (VaultRolesManagerClient<'_>, Address, Address, Address, Address) {
+) -> (FeeProxyClient<'_>, Address, Address, Address, Address) {
     let (client, admin, fee_manager) = setup(env);
 
     let vault_admin = Address::generate(env);
