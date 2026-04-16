@@ -1,7 +1,7 @@
 #![no_std]
 
 use soroban_sdk::{
-    contract, contractimpl, panic_with_error, vec, Address, Env, Symbol, Vec,
+    contract, contractimpl, panic_with_error, token, vec, Address, Env, Symbol, Vec,
 };
 
 mod error;
@@ -28,7 +28,6 @@ fn require_manager(env: &Env) {
     manager.require_auth();
 }
 
-#[allow(dead_code)]
 fn require_active_campaign(env: &Env, vault: &Address) -> Campaign {
     let campaign = storage::get_campaign(env, vault)
         .unwrap_or_else(|| panic_with_error!(env, ContractError::CampaignNotRegistered));
@@ -38,7 +37,6 @@ fn require_active_campaign(env: &Env, vault: &Address) -> Campaign {
     campaign
 }
 
-#[allow(dead_code)]
 fn require_positive_amount(env: &Env, amount: i128) {
     if amount <= 0 {
         panic_with_error!(env, ContractError::InvalidAmount);
@@ -149,5 +147,31 @@ impl BoostTreasury {
         storage::remove_campaign(&env, &vault);
 
         events::CampaignUnregistered { vault }.publish(&env);
+    }
+
+    // --- Anyone (authenticated) ---
+
+    pub fn deposit(env: Env, caller: Address, vault: Address, amount: i128) {
+        extend_instance_ttl(&env);
+        caller.require_auth();
+        require_positive_amount(&env, amount);
+
+        let mut campaign = require_active_campaign(&env, &vault);
+
+        token::Client::new(&env, &campaign.asset).transfer(
+            &caller,
+            &env.current_contract_address(),
+            &amount,
+        );
+
+        campaign.total_deposited += amount;
+        storage::set_campaign(&env, &vault, &campaign);
+
+        events::Deposited {
+            vault,
+            depositor: caller,
+            amount,
+        }
+        .publish(&env);
     }
 }

@@ -251,3 +251,61 @@ fn test_unregister_campaign_not_registered() {
     let random_vault = Address::generate(&env);
     client.unregister_campaign(&random_vault);
 }
+
+// ---------------------------------------------------------------------------
+// deposit tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_deposit_updates_accounting_and_transfers_tokens() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _, vault, _, token_admin, token_client) = setup_with_campaign(&env);
+
+    let depositor = Address::generate(&env);
+    token_admin.mint(&depositor, &1_000);
+
+    client.deposit(&depositor, &vault, &400);
+
+    let campaign = client.get_campaign(&vault);
+    assert_eq!(campaign.total_deposited, 400);
+    assert_eq!(campaign.available(), 400);
+
+    // Token balances
+    assert_eq!(token_client.balance(&depositor), 600);
+    assert_eq!(token_client.balance(&client.address), 400);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #111)")]
+fn test_deposit_campaign_not_registered() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _) = setup(&env);
+    let random_vault = Address::generate(&env);
+    let depositor = Address::generate(&env);
+    client.deposit(&depositor, &random_vault, &100);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #112)")]
+fn test_deposit_campaign_inactive() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _, vault, _, token_admin, _) = setup_with_campaign(&env);
+    client.update_campaign(&vault, &false);
+
+    let depositor = Address::generate(&env);
+    token_admin.mint(&depositor, &100);
+    client.deposit(&depositor, &vault, &50);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #130)")]
+fn test_deposit_zero_amount() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _, vault, _, _, _) = setup_with_campaign(&env);
+    let depositor = Address::generate(&env);
+    client.deposit(&depositor, &vault, &0);
+}
