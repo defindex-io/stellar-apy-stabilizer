@@ -390,3 +390,69 @@ fn test_boost_campaign_not_registered() {
     let random_vault = Address::generate(&env);
     client.boost(&random_vault, &100);
 }
+
+// ---------------------------------------------------------------------------
+// transfer tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_transfer_updates_accounting_and_sends_tokens() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _, vault, token_client) = setup_funded_campaign(&env, 1_000);
+    let recipient = Address::generate(&env);
+
+    client.transfer(&vault, &250, &recipient);
+
+    let campaign = client.get_campaign(&vault);
+    assert_eq!(campaign.total_withdrawn, 250);
+    assert_eq!(campaign.available(), 750);
+
+    assert_eq!(token_client.balance(&client.address), 750);
+    assert_eq!(token_client.balance(&recipient), 250);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #131)")]
+fn test_transfer_exceeds_available() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _, vault, _) = setup_funded_campaign(&env, 100);
+    let recipient = Address::generate(&env);
+    client.transfer(&vault, &200, &recipient);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #130)")]
+fn test_transfer_zero_amount() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _, vault, _) = setup_funded_campaign(&env, 100);
+    let recipient = Address::generate(&env);
+    client.transfer(&vault, &0, &recipient);
+}
+
+#[test]
+fn test_transfer_allows_unregister_after_draining() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _, vault, _) = setup_funded_campaign(&env, 500);
+    let recipient = Address::generate(&env);
+
+    client.transfer(&vault, &500, &recipient);
+    // available() should now be 0
+    let campaign = client.get_campaign(&vault);
+    assert_eq!(campaign.available(), 0);
+
+    // Now unregister should succeed
+    client.unregister_campaign(&vault);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #113)")]
+fn test_unregister_campaign_with_balance_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _, vault, _) = setup_funded_campaign(&env, 100);
+    client.unregister_campaign(&vault);
+}

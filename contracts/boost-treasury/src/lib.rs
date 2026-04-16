@@ -198,4 +198,31 @@ impl BoostTreasury {
 
         events::Boosted { vault, amount }.publish(&env);
     }
+
+    pub fn transfer(env: Env, vault: Address, amount: i128, to: Address) {
+        extend_instance_ttl(&env);
+        require_admin(&env);
+        require_positive_amount(&env, amount);
+
+        let campaign = storage::get_campaign(&env, &vault)
+            .unwrap_or_else(|| panic_with_error!(&env, ContractError::CampaignNotRegistered));
+
+        if amount > campaign.available() {
+            panic_with_error!(&env, ContractError::InsufficientBudget);
+        }
+
+        token::Client::new(&env, &campaign.asset).transfer(
+            &env.current_contract_address(),
+            &to,
+            &amount,
+        );
+
+        let updated = Campaign {
+            total_withdrawn: campaign.total_withdrawn + amount,
+            ..campaign
+        };
+        storage::set_campaign(&env, &vault, &updated);
+
+        events::Transferred { vault, to, amount }.publish(&env);
+    }
 }
