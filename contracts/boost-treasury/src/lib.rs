@@ -22,7 +22,6 @@ fn require_admin(env: &Env) {
     admin.require_auth();
 }
 
-#[allow(dead_code)]
 fn require_manager(env: &Env) {
     let manager = storage::get_manager(env);
     manager.require_auth();
@@ -173,5 +172,30 @@ impl BoostTreasury {
             amount,
         }
         .publish(&env);
+    }
+
+    // --- Manager-only ---
+
+    pub fn boost(env: Env, vault: Address, amount: i128) {
+        extend_instance_ttl(&env);
+        require_manager(&env);
+        require_positive_amount(&env, amount);
+
+        let mut campaign = require_active_campaign(&env, &vault);
+
+        if amount > campaign.available() {
+            panic_with_error!(&env, ContractError::InsufficientBudget);
+        }
+
+        token::Client::new(&env, &campaign.asset).transfer(
+            &env.current_contract_address(),
+            &vault,
+            &amount,
+        );
+
+        campaign.total_boosted += amount;
+        storage::set_campaign(&env, &vault, &campaign);
+
+        events::Boosted { vault, amount }.publish(&env);
     }
 }

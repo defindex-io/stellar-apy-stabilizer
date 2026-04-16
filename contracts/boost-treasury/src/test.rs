@@ -309,3 +309,84 @@ fn test_deposit_zero_amount() {
     let depositor = Address::generate(&env);
     client.deposit(&depositor, &vault, &0);
 }
+
+// ---------------------------------------------------------------------------
+// boost tests
+// ---------------------------------------------------------------------------
+
+fn setup_funded_campaign(
+    env: &Env,
+    funding: i128,
+) -> (
+    BoostTreasuryClient<'_>,
+    Address,
+    Address,
+    Address,
+    token::TokenClient<'_>,
+) {
+    let (client, admin, manager, vault, _asset, token_admin, token_client) =
+        setup_with_campaign(env);
+    let depositor = Address::generate(env);
+    token_admin.mint(&depositor, &funding);
+    client.deposit(&depositor, &vault, &funding);
+    (client, admin, manager, vault, token_client)
+}
+
+#[test]
+fn test_boost_updates_accounting_and_transfers_to_vault() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _manager, vault, token_client) = setup_funded_campaign(&env, 1_000);
+
+    // Before boost: contract holds 1000, vault holds 0
+    assert_eq!(token_client.balance(&client.address), 1_000);
+    assert_eq!(token_client.balance(&vault), 0);
+
+    client.boost(&vault, &300);
+
+    let campaign = client.get_campaign(&vault);
+    assert_eq!(campaign.total_boosted, 300);
+    assert_eq!(campaign.available(), 700);
+
+    // Tokens moved from contract to vault
+    assert_eq!(token_client.balance(&client.address), 700);
+    assert_eq!(token_client.balance(&vault), 300);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #131)")]
+fn test_boost_exceeds_available() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _, vault, _) = setup_funded_campaign(&env, 100);
+    client.boost(&vault, &200);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #112)")]
+fn test_boost_campaign_inactive() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _, vault, _) = setup_funded_campaign(&env, 100);
+    client.update_campaign(&vault, &false);
+    client.boost(&vault, &50);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #130)")]
+fn test_boost_zero_amount() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _, vault, _) = setup_funded_campaign(&env, 100);
+    client.boost(&vault, &0);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #111)")]
+fn test_boost_campaign_not_registered() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _) = setup(&env);
+    let random_vault = Address::generate(&env);
+    client.boost(&random_vault, &100);
+}
