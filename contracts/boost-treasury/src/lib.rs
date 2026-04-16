@@ -8,7 +8,6 @@ mod error;
 mod events;
 mod storage;
 
-#[cfg(test)]
 mod test;
 
 pub use error::ContractError;
@@ -159,7 +158,7 @@ impl BoostTreasury {
 
         token::Client::new(&env, &campaign.asset).transfer(
             &caller,
-            &env.current_contract_address(),
+            env.current_contract_address(),
             &amount,
         );
 
