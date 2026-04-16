@@ -124,3 +124,75 @@ fn test_constructor_sets_admin_and_manager() {
     assert_eq!(client.get_admin(), admin);
     assert_eq!(client.get_manager(), manager);
 }
+
+// ---------------------------------------------------------------------------
+// set_manager tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_set_manager() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, _manager) = setup(&env);
+    let new_manager = Address::generate(&env);
+    client.set_manager(&new_manager);
+    assert_eq!(client.get_manager(), new_manager);
+}
+
+// ---------------------------------------------------------------------------
+// register_campaign tests
+// ---------------------------------------------------------------------------
+
+fn setup_with_campaign(
+    env: &Env,
+) -> (
+    BoostTreasuryClient<'_>,
+    Address,
+    Address,
+    Address,
+    Address,
+    token::StellarAssetClient<'_>,
+    token::TokenClient<'_>,
+) {
+    let (client, admin, manager) = setup(env);
+    let (token_admin, token_client, asset) = create_test_token(env);
+    let vault = register_mock_vault(env, &asset);
+    client.register_campaign(&vault);
+    (client, admin, manager, vault, asset, token_admin, token_client)
+}
+
+#[test]
+fn test_register_campaign() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, _manager, vault, asset, _token_admin, _token_client) =
+        setup_with_campaign(&env);
+
+    let campaign = client.get_campaign(&vault);
+    assert_eq!(campaign.active, true);
+    assert_eq!(campaign.asset, asset);
+    assert_eq!(campaign.total_deposited, 0);
+    assert_eq!(campaign.total_boosted, 0);
+    assert_eq!(campaign.total_withdrawn, 0);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #110)")]
+fn test_register_campaign_already_registered() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _, vault, _, _, _) = setup_with_campaign(&env);
+    client.register_campaign(&vault); // second call panics
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #120)")]
+fn test_register_campaign_multi_asset_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, _manager) = setup(&env);
+    let asset_a = Address::generate(&env);
+    let asset_b = Address::generate(&env);
+    let multi_vault = env.register(MultiAssetMockVault, (&asset_a, &asset_b));
+    client.register_campaign(&multi_vault);
+}
