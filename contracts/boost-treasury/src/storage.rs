@@ -1,0 +1,115 @@
+use soroban_sdk::{contracttype, Address, Env, String, Vec};
+
+const DAY_IN_LEDGERS: u32 = 17_280;
+const INSTANCE_BUMP_AMOUNT: u32 = 30 * DAY_IN_LEDGERS;
+const INSTANCE_LIFETIME_THRESHOLD: u32 = INSTANCE_BUMP_AMOUNT - DAY_IN_LEDGERS;
+const PERSISTENT_BUMP_AMOUNT: u32 = 120 * DAY_IN_LEDGERS;
+const PERSISTENT_LIFETIME_THRESHOLD: u32 = PERSISTENT_BUMP_AMOUNT - 20 * DAY_IN_LEDGERS;
+
+#[contracttype]
+#[derive(Clone)]
+pub enum DataKey {
+    Admin,
+    Manager,
+    Campaign(Address),
+}
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Campaign {
+    pub active: bool,
+    pub asset: Address,
+    pub total_deposited: i128,
+    pub total_boosted: i128,
+    pub total_withdrawn: i128,
+}
+
+impl Campaign {
+    pub fn available(&self) -> i128 {
+        self.total_deposited - self.total_boosted - self.total_withdrawn
+    }
+}
+
+// Minimal mirrors of vault types for decoding get_assets() — only what we need
+#[contracttype]
+#[derive(Clone)]
+pub struct VaultStrategy {
+    pub address: Address,
+    pub name: String,
+    pub paused: bool,
+}
+
+#[contracttype]
+#[derive(Clone)]
+pub struct VaultAssetStrategySet {
+    pub address: Address,
+    pub strategies: Vec<VaultStrategy>,
+}
+
+// --- TTL ---
+
+pub fn extend_instance_ttl(env: &Env) {
+    env.storage()
+        .instance()
+        .extend_ttl(INSTANCE_LIFETIME_THRESHOLD, INSTANCE_BUMP_AMOUNT);
+}
+
+pub fn extend_campaign_ttl(env: &Env, vault: &Address) {
+    env.storage().persistent().extend_ttl(
+        &DataKey::Campaign(vault.clone()),
+        PERSISTENT_LIFETIME_THRESHOLD,
+        PERSISTENT_BUMP_AMOUNT,
+    );
+}
+
+// --- Admin ---
+
+pub fn get_admin(env: &Env) -> Address {
+    env.storage().instance().get(&DataKey::Admin).unwrap()
+}
+
+pub fn set_admin(env: &Env, admin: &Address) {
+    env.storage().instance().set(&DataKey::Admin, admin);
+}
+
+// --- Manager ---
+
+pub fn get_manager(env: &Env) -> Address {
+    env.storage().instance().get(&DataKey::Manager).unwrap()
+}
+
+pub fn set_manager(env: &Env, manager: &Address) {
+    env.storage().instance().set(&DataKey::Manager, manager);
+}
+
+// --- Campaign ---
+
+pub fn get_campaign(env: &Env, vault: &Address) -> Option<Campaign> {
+    let campaign = env
+        .storage()
+        .persistent()
+        .get(&DataKey::Campaign(vault.clone()));
+    if campaign.is_some() {
+        extend_campaign_ttl(env, vault);
+    }
+    campaign
+}
+
+pub fn set_campaign(env: &Env, vault: &Address, campaign: &Campaign) {
+    env.storage()
+        .persistent()
+        .set(&DataKey::Campaign(vault.clone()), campaign);
+    extend_campaign_ttl(env, vault);
+}
+
+pub fn remove_campaign(env: &Env, vault: &Address) {
+    env.storage()
+        .persistent()
+        .remove(&DataKey::Campaign(vault.clone()));
+}
+
+pub fn has_campaign(env: &Env, vault: &Address) -> bool {
+    env.storage()
+        .persistent()
+        .has(&DataKey::Campaign(vault.clone()))
+}
