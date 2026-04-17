@@ -108,6 +108,7 @@ impl BoostTreasury {
             total_deposited: 0,
             total_boosted: 0,
             total_withdrawn: 0,
+            last_boosted_at: 0,
         };
         storage::set_campaign(&env, &vault, &campaign);
 
@@ -193,6 +194,7 @@ impl BoostTreasury {
         );
 
         campaign.total_boosted += amount;
+        campaign.last_boosted_at = env.ledger().timestamp();
         storage::set_campaign(&env, &vault, &campaign);
 
         events::Boosted { vault, amount }.publish(&env);

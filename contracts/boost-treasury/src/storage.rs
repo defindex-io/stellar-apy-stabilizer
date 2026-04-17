@@ -22,6 +22,8 @@ pub struct Campaign {
     pub total_deposited: i128,
     pub total_boosted: i128,
     pub total_withdrawn: i128,
+    /// Ledger timestamp (seconds) of the most recent `boost()` call. 0 if never boosted.
+    pub last_boosted_at: u64,
 }
 
 impl Campaign {

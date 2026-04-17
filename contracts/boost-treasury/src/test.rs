@@ -2,7 +2,7 @@
 
 use soroban_sdk::{
     contract, contractimpl,
-    testutils::Address as _,
+    testutils::{Address as _, Ledger as _},
     token, vec, Address, Env, Vec,
 };
 
@@ -174,6 +174,7 @@ fn test_register_campaign() {
     assert_eq!(campaign.total_deposited, 0);
     assert_eq!(campaign.total_boosted, 0);
     assert_eq!(campaign.total_withdrawn, 0);
+    assert_eq!(campaign.last_boosted_at, 0);
 }
 
 #[test]
@@ -351,6 +352,25 @@ fn test_boost_updates_accounting_and_transfers_to_vault() {
     // Tokens moved from contract to vault
     assert_eq!(token_client.balance(&client.address), 700);
     assert_eq!(token_client.balance(&vault), 300);
+}
+
+#[test]
+fn test_boost_updates_last_boosted_at() {
+    let env = Env::default();
+    env.mock_all_auths();
+    env.ledger().with_mut(|l| l.timestamp = 1_700_000_000);
+    let (client, _, _, vault, _) = setup_funded_campaign(&env, 1_000);
+
+    // Before boost: last_boosted_at is 0
+    assert_eq!(client.get_campaign(&vault).last_boosted_at, 0);
+
+    client.boost(&vault, &100);
+    assert_eq!(client.get_campaign(&vault).last_boosted_at, 1_700_000_000);
+
+    // Subsequent boost updates the timestamp
+    env.ledger().with_mut(|l| l.timestamp = 1_700_003_600);
+    client.boost(&vault, &100);
+    assert_eq!(client.get_campaign(&vault).last_boosted_at, 1_700_003_600);
 }
 
 #[test]
