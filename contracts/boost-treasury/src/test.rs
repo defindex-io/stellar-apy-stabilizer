@@ -140,6 +140,67 @@ fn test_set_manager() {
 }
 
 // ---------------------------------------------------------------------------
+// Two-step admin rotation tests (L-5)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_propose_and_accept_admin() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin, _manager) = setup(&env);
+    let new_admin = Address::generate(&env);
+
+    assert_eq!(client.get_pending_admin(), None);
+    client.propose_admin(&new_admin);
+    assert_eq!(client.get_pending_admin(), Some(new_admin.clone()));
+    // Admin unchanged until accepted
+    assert_eq!(client.get_admin(), admin);
+
+    client.accept_admin(&new_admin);
+    assert_eq!(client.get_admin(), new_admin);
+    assert_eq!(client.get_pending_admin(), None);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #101)")]
+fn test_accept_admin_without_pending() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, _manager) = setup(&env);
+    let attacker = Address::generate(&env);
+    client.accept_admin(&attacker);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #100)")]
+fn test_accept_admin_wrong_caller() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, _manager) = setup(&env);
+    let proposed = Address::generate(&env);
+    let attacker = Address::generate(&env);
+    client.propose_admin(&proposed);
+    // attacker != pending admin
+    client.accept_admin(&attacker);
+}
+
+#[test]
+fn test_propose_admin_overwrites_prior_proposal() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, _manager) = setup(&env);
+    let first = Address::generate(&env);
+    let second = Address::generate(&env);
+
+    client.propose_admin(&first);
+    client.propose_admin(&second);
+    assert_eq!(client.get_pending_admin(), Some(second.clone()));
+
+    client.accept_admin(&second);
+    assert_eq!(client.get_admin(), second);
+}
+
+// ---------------------------------------------------------------------------
 // register_campaign tests
 // ---------------------------------------------------------------------------
 

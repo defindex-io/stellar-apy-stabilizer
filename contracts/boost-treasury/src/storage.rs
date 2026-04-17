@@ -10,6 +10,7 @@ const PERSISTENT_LIFETIME_THRESHOLD: u32 = PERSISTENT_BUMP_AMOUNT - 20 * DAY_IN_
 #[derive(Clone)]
 pub enum DataKey {
     Admin,
+    PendingAdmin,
     Manager,
     Campaign(Address),
 }
@@ -72,6 +73,20 @@ pub fn get_admin(env: &Env) -> Address {
 
 pub fn set_admin(env: &Env, admin: &Address) {
     env.storage().instance().set(&DataKey::Admin, admin);
+}
+
+// --- PendingAdmin ---
+
+pub fn get_pending_admin(env: &Env) -> Option<Address> {
+    env.storage().instance().get(&DataKey::PendingAdmin)
+}
+
+pub fn set_pending_admin(env: &Env, pending: &Address) {
+    env.storage().instance().set(&DataKey::PendingAdmin, pending);
+}
+
+pub fn remove_pending_admin(env: &Env) {
+    env.storage().instance().remove(&DataKey::PendingAdmin);
 }
 
 // --- Manager ---

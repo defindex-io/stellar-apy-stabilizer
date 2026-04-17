@@ -5,6 +5,7 @@ use soroban_sdk::contracterror;
 #[repr(u32)]
 pub enum ContractError {
     Unauthorized = 100,
+    NoPendingAdmin = 101,
     CampaignAlreadyRegistered = 110,
     CampaignNotRegistered = 111,
     CampaignInactive = 112,

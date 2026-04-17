@@ -62,6 +62,10 @@ impl BoostTreasury {
         storage::get_manager(&env)
     }
 
+    pub fn get_pending_admin(env: Env) -> Option<Address> {
+        storage::get_pending_admin(&env)
+    }
+
     pub fn get_campaign(env: Env, vault: Address) -> Campaign {
         storage::get_campaign(&env, &vault)
             .unwrap_or_else(|| panic_with_error!(&env, ContractError::CampaignNotRegistered))
@@ -79,6 +83,46 @@ impl BoostTreasury {
         events::ManagerUpdated {
             old,
             new_addr: new_manager,
+        }
+        .publish(&env);
+    }
+
+    /// Proposes a new admin. The new address must call `accept_admin` to take
+    /// the role. Calling again with a different address overwrites the pending
+    /// slot; calling with the current admin's own address effectively cancels.
+    pub fn propose_admin(env: Env, new_admin: Address) {
+        extend_instance_ttl(&env);
+        let admin = storage::get_admin(&env);
+        admin.require_auth();
+
+        storage::set_pending_admin(&env, &new_admin);
+
+        events::AdminProposed {
+            current: admin,
+            pending: new_admin,
+        }
+        .publish(&env);
+    }
+
+    /// Accepts a pending admin transfer. Must be called by the exact address
+    /// that was previously proposed. Clears the pending slot on success.
+    pub fn accept_admin(env: Env, new_admin: Address) {
+        extend_instance_ttl(&env);
+        new_admin.require_auth();
+
+        let pending = storage::get_pending_admin(&env)
+            .unwrap_or_else(|| panic_with_error!(&env, ContractError::NoPendingAdmin));
+        if new_admin != pending {
+            panic_with_error!(&env, ContractError::Unauthorized);
+        }
+
+        let old = storage::get_admin(&env);
+        storage::set_admin(&env, &new_admin);
+        storage::remove_pending_admin(&env);
+
+        events::AdminUpdated {
+            old,
+            new_addr: new_admin,
         }
         .publish(&env);
     }
