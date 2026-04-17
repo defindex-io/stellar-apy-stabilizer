@@ -50,3 +50,17 @@ pub struct FeeManagerUpdated {
     pub old: Address,
     pub new_addr: Address,
 }
+
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AdminProposed {
+    pub current: Address,
+    pub pending: Address,
+}
+
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AdminUpdated {
+    pub old: Address,
+    pub new_addr: Address,
+}

@@ -35,11 +35,22 @@ fn require_vault_admin(env: &Env, vault: &Address) -> VaultConfig {
     config
 }
 
-// --- Fee-bounds validation ---
+// --- Validation ---
+
+/// Upper cap for target APY: 1000% (100_000 bps). Anything higher is almost
+/// certainly a misconfiguration, and we'd rather fail loudly than silently
+/// store nonsense partners might rely on.
+pub const MAX_TARGET_APY_BPS: u32 = 100_000;
 
 fn validate_fee_bounds(env: &Env, min_fee_bps: u32, max_fee_bps: u32) {
     if min_fee_bps > max_fee_bps || max_fee_bps > 10_000 {
         panic_with_error!(env, ContractError::InvalidFeeBounds);
+    }
+}
+
+fn validate_target_apy(env: &Env, target_apy_bps: u32) {
+    if target_apy_bps > MAX_TARGET_APY_BPS {
+        panic_with_error!(env, ContractError::InvalidTargetApy);
     }
 }
 
@@ -70,6 +81,10 @@ impl FeeProxy {
         storage::get_fee_manager(&env)
     }
 
+    pub fn get_pending_admin(env: Env) -> Option<Address> {
+        storage::get_pending_admin(&env)
+    }
+
     pub fn get_vault_config(env: Env, vault: Address) -> VaultConfig {
         storage::get_vault_config(&env, &vault)
             .unwrap_or_else(|| panic_with_error!(&env, ContractError::VaultNotRegistered))
@@ -88,6 +103,47 @@ impl FeeProxy {
         events::FeeManagerUpdated {
             old,
             new_addr: new_fee_manager,
+        }
+        .publish(&env);
+    }
+
+    /// Proposes a new admin. The new address must call `accept_admin` to take
+    /// the role. Current admin may overwrite a pending proposal by calling
+    /// again with a different address. Calling with the current admin's own
+    /// address is a safe way to cancel a prior proposal.
+    pub fn propose_admin(env: Env, new_admin: Address) {
+        extend_instance_ttl(&env);
+        let admin = storage::get_admin(&env);
+        admin.require_auth();
+
+        storage::set_pending_admin(&env, &new_admin);
+
+        events::AdminProposed {
+            current: admin,
+            pending: new_admin,
+        }
+        .publish(&env);
+    }
+
+    /// Accepts a pending admin transfer. Must be called by the exact address
+    /// that was previously proposed. Clears the pending slot on success.
+    pub fn accept_admin(env: Env, new_admin: Address) {
+        extend_instance_ttl(&env);
+        new_admin.require_auth();
+
+        let pending = storage::get_pending_admin(&env)
+            .unwrap_or_else(|| panic_with_error!(&env, ContractError::NoPendingAdmin));
+        if new_admin != pending {
+            panic_with_error!(&env, ContractError::Unauthorized);
+        }
+
+        let old = storage::get_admin(&env);
+        storage::set_admin(&env, &new_admin);
+        storage::remove_pending_admin(&env);
+
+        events::AdminUpdated {
+            old,
+            new_addr: new_admin,
         }
         .publish(&env);
     }
@@ -113,6 +169,7 @@ impl FeeProxy {
         }
 
         validate_fee_bounds(&env, config.min_fee_bps, config.max_fee_bps);
+        validate_target_apy(&env, config.target_apy_bps);
 
         let proxy = env.current_contract_address();
 
@@ -219,6 +276,7 @@ impl FeeProxy {
 
     pub fn set_target_apy(env: Env, vault: Address, target_apy_bps: u32) {
         extend_instance_ttl(&env);
+        validate_target_apy(&env, target_apy_bps);
         let mut config = require_vault_admin(&env, &vault);
 
         config.target_apy_bps = target_apy_bps;

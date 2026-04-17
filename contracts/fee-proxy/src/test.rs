@@ -288,6 +288,127 @@ fn test_set_fee_bounds_invalid() {
 }
 
 // ---------------------------------------------------------------------------
+// Target APY cap tests (L-1)
+// ---------------------------------------------------------------------------
+
+#[test]
+#[should_panic(expected = "Error(Contract, #122)")]
+fn test_register_vault_target_apy_too_high() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, _fee_manager) = setup(&env);
+
+    let vault_admin = Address::generate(&env);
+    let vault_id = env.register(MockVault, (&client.address,));
+    let config = VaultConfig {
+        admin: vault_admin.clone(),
+        target_apy_bps: 100_001, // > MAX_TARGET_APY_BPS
+        min_fee_bps: 0,
+        max_fee_bps: 100,
+    };
+    client.register_vault(&vault_admin, &vault_id, &config);
+}
+
+#[test]
+fn test_register_vault_target_apy_at_max_ok() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, _fee_manager) = setup(&env);
+
+    let vault_admin = Address::generate(&env);
+    let vault_id = env.register(MockVault, (&client.address,));
+    let config = VaultConfig {
+        admin: vault_admin.clone(),
+        target_apy_bps: 100_000, // exactly at cap
+        min_fee_bps: 0,
+        max_fee_bps: 100,
+    };
+    client.register_vault(&vault_admin, &vault_id, &config);
+    assert_eq!(client.get_vault_config(&vault_id).target_apy_bps, 100_000);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #122)")]
+fn test_set_target_apy_too_high() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, _fee_manager, _vault_admin, vault_id) =
+        setup_with_vault(&env);
+    client.set_target_apy(&vault_id, &100_001u32);
+}
+
+#[test]
+fn test_set_target_apy_at_max_ok() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, _fee_manager, _vault_admin, vault_id) =
+        setup_with_vault(&env);
+    client.set_target_apy(&vault_id, &100_000u32);
+    assert_eq!(client.get_vault_config(&vault_id).target_apy_bps, 100_000);
+}
+
+// ---------------------------------------------------------------------------
+// Two-step admin rotation tests (L-5)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_propose_and_accept_admin() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin, _fee_manager) = setup(&env);
+    let new_admin = Address::generate(&env);
+
+    assert_eq!(client.get_pending_admin(), None);
+    client.propose_admin(&new_admin);
+    assert_eq!(client.get_pending_admin(), Some(new_admin.clone()));
+    // Admin unchanged until accepted
+    assert_eq!(client.get_admin(), admin);
+
+    client.accept_admin(&new_admin);
+    assert_eq!(client.get_admin(), new_admin);
+    assert_eq!(client.get_pending_admin(), None);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #123)")]
+fn test_accept_admin_without_pending() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, _fee_manager) = setup(&env);
+    let attacker = Address::generate(&env);
+    client.accept_admin(&attacker);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #100)")]
+fn test_accept_admin_wrong_caller() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, _fee_manager) = setup(&env);
+    let proposed = Address::generate(&env);
+    let attacker = Address::generate(&env);
+    client.propose_admin(&proposed);
+    // attacker != pending admin
+    client.accept_admin(&attacker);
+}
+
+#[test]
+fn test_propose_admin_overwrites_prior_proposal() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, _fee_manager) = setup(&env);
+    let first = Address::generate(&env);
+    let second = Address::generate(&env);
+
+    client.propose_admin(&first);
+    client.propose_admin(&second);
+    assert_eq!(client.get_pending_admin(), Some(second.clone()));
+
+    client.accept_admin(&second);
+    assert_eq!(client.get_admin(), second);
+}
+
+// ---------------------------------------------------------------------------
 // Passthrough function tests (Task 6)
 // ---------------------------------------------------------------------------
 
