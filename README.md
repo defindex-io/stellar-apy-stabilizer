@@ -5,7 +5,7 @@ Soroban contracts that let a DeFindex vault partner opt into a managed fee polic
 - **FeeProxy** — holds the vault's Manager role and exposes a narrow, auth-gated surface so an off-chain fee manager can adjust performance fees within partner-defined bounds.
 - **BoostTreasury** — escrows partner-funded boost budgets and streams them into vaults to top up realized yield toward a target APY.
 
-The two contracts are independent on-chain singletons. The off-chain fee service in [`defindex-api`](../defindex-api) orchestrates them together; the indexer in [`defindex-indexer`](../defindex-indexer) consumes their events.
+The two contracts are independent on-chain singletons. An off-chain fee service orchestrates them together, and an indexer consumes their events.
 
 ## Repo Layout
 
@@ -23,11 +23,11 @@ Cargo workspace at the root pins `soroban-sdk = "25.3.1"` and release flags tune
 
 ## Prerequisites
 
-- Rust toolchain with `wasm32-unknown-unknown` target
+- Rust toolchain with `wasm32v1-none` target
 - [Stellar CLI](https://developers.stellar.org/docs/tools/developer-tools/cli/install-cli) ≥ 26.0
 
 ```bash
-rustup target add wasm32-unknown-unknown
+rustup target add wasm32v1-none
 cargo install --locked stellar-cli
 ```
 
@@ -39,7 +39,7 @@ Build both contracts to optimized WASM:
 stellar contract build
 ```
 
-Artifacts land in `target/wasm32-unknown-unknown/release/fee_proxy.wasm` and `target/wasm32-unknown-unknown/release/boost_treasury.wasm`.
+Artifacts land in `target/wasm32v1-none/release/fee_proxy.wasm` and `target/wasm32v1-none/release/boost_treasury.wasm`.
 
 To build a single contract:
 
@@ -72,14 +72,20 @@ A Manager-role holder for DeFindex vaults. Partners register their vault and del
 
 **State**
 - Global: `admin`, `fee_manager`, `pending_admin`
-- Per vault: `VaultConfig { admin, target_apy_bps, min_fee_bps, max_fee_bps }`
+- Per vault: `VaultConfig { admin, target_apy_bps, max_fee_bps, min_fee_bps }`
+
+**Read-only** — `get_admin`, `get_fee_manager`, `get_pending_admin`, `get_vault_config`.
 
 **Entrypoints**
-- `register_vault` / `unregister_vault` — partner admin registers; proxy becomes Manager. Fee bounds validated (`max ≤ 10_000`, `min ≤ max`) and `target_apy_bps ≤ 100_000` (10% cap = `MAX_TARGET_APY_BPS`).
-- `lock_fees(caller, vault, new_fee_bps)` — fee manager or vault admin; enforces the per-vault `[min, max]` corridor before calling through to the vault.
-- `distribute_fees`, `release_fees` — fee manager or admin call vault routines via the Manager role.
-- `set_target_apy`, `set_fee_bounds` — vault admin updates config; target APY cap re-validated.
-- Passthroughs (`upgrade_vault`, `set_vault_manager`, `set_vault_fee_receiver`, `set_vault_emergency_manager`, `set_vault_rebalance_manager`, `rescue_vault`, `pause_vault_strategy`, `unpause_vault_strategy`) — partner admin acts on the vault through the proxy without losing the Manager role.
+- `register_vault(admin, vault, config)` — `admin` is the caller and must be the vault's **current Manager** (the proxy calls `vault.set_manager(proxy)` on success, which requires the old manager's auth). `config.admin` is the address that controls this vault through the proxy going forward — it does **not** need to equal `admin`, allowing partners to delegate to a different operational key. Validates `max_fee_bps ≤ 10_000`, `min_fee_bps ≤ max_fee_bps`, and `target_apy_bps ≤ MAX_TARGET_APY_BPS` (`100_000` bps = 1000%, a loud-failure guard against misconfiguration).
+- `unregister_vault` — vault admin only; returns Manager role to `config.admin` and removes the vault config.
+- `lock_fees(caller, vault, new_fee_bps)` — fee manager or vault admin. If `new_fee_bps = Some(x)`, enforces `min ≤ x ≤ max` before the passthrough and emits `FeesLocked`. If `None`, skips validation and passes through without emitting (re-locks the existing fee).
+- `distribute_fees` — fee manager or vault admin; calls the vault via the Manager role.
+- `release_fees` — vault admin only; calls the vault via the Manager role (no event emitted).
+- `set_target_apy` — vault admin; re-validates the APY cap.
+- `set_fee_bounds` — vault admin; re-validates fee bounds.
+- `set_vault_manager(vault, new_manager)` — vault admin. Passes through `set_manager` on the vault; if `new_manager ≠ proxy`, also removes the vault config and emits `VaultUnregistered` (the proxy can no longer control the vault).
+- Passthroughs — vault admin acts on the vault through the proxy without losing the Manager role: `upgrade_vault`, `set_vault_fee_receiver`, `set_vault_emergency_manager`, `set_vault_rebalance_manager`, `rescue_vault`, `pause_vault_strategy`, `unpause_vault_strategy`.
 - `propose_admin` / `accept_admin` — two-step global admin rotation.
 - `set_fee_manager` — admin rotates the off-chain fee manager key in one shot.
 
@@ -93,14 +99,17 @@ Per-vault escrow for top-up budgets. Anyone can deposit into a registered vault'
 - Global: `admin`, `manager`, `pending_admin`
 - Per vault: `Campaign { active, asset, total_deposited, total_boosted, total_withdrawn, last_boosted_at }` where `available = total_deposited - total_boosted - total_withdrawn`.
 
+**Read-only** — `get_admin`, `get_manager`, `get_pending_admin`, `get_campaign`.
+
 **Entrypoints**
-- `register_campaign(vault)` — admin only. Reads the vault's `get_assets()` and rejects multi-asset vaults (one asset per campaign). Asset is locked on registration.
-- `update_campaign(vault, active)` — admin toggles the active flag (deposits and boosts require `active = true`).
-- `unregister_campaign(vault)` — admin only, requires `available == 0`.
-- `deposit(caller, vault, amount)` — anyone authenticated; `token.transfer` from caller into escrow.
-- `boost(vault, amount)` — manager only; transfers from escrow to the vault and stamps `last_boosted_at`. Reverts on `amount > available`.
-- `transfer(vault, amount, to)` — admin-only withdrawal from escrow, accounted against `total_withdrawn`.
-- `set_manager`, `propose_admin` / `accept_admin` — role rotation.
+- `register_campaign(vault)` — admin only. Reads the vault's `get_assets()` and rejects multi-asset vaults (one asset per campaign — `MultiAssetVaultNotSupported`). Asset is captured on registration and immutable afterward.
+- `update_campaign(vault, active)` — admin toggles the `active` flag. Deposits and boosts require `active = true`; `transfer` does **not** (admin escape hatch from an inactive campaign).
+- `unregister_campaign(vault)` — admin only; requires `available == 0` (`CampaignHasBalance` otherwise).
+- `deposit(caller, vault, amount)` — anyone with `caller.require_auth()`. Requires `amount > 0` and `active = true`. Pulls tokens from the caller into escrow via `token.transfer`.
+- `boost(vault, amount)` — manager only. Requires `amount > 0`, `active = true`, and `amount ≤ available` (`InsufficientBudget` otherwise). Transfers from escrow to the vault and stamps `last_boosted_at = ledger.timestamp()`.
+- `transfer(vault, amount, to)` — admin only. Requires `amount > 0` and `amount ≤ available`; does **not** require `active`. Transfers from escrow to `to` and accounts the amount against `total_withdrawn`.
+- `set_manager` — admin rotates the manager key (the address authorized to call `boost`) in one shot.
+- `propose_admin` / `accept_admin` — two-step global admin rotation.
 
 **Events** — `CampaignRegistered`, `CampaignUpdated`, `CampaignUnregistered`, `Deposited`, `Boosted`, `Transferred`, `ManagerUpdated`, `AdminProposed`, `AdminUpdated`.
 
@@ -108,20 +117,14 @@ Per-vault escrow for top-up budgets. Anyone can deposit into a registered vault'
 
 ```bash
 stellar contract deploy \
-  --wasm target/wasm32-unknown-unknown/release/fee_proxy.wasm \
+  --wasm target/wasm32v1-none/release/fee_proxy.wasm \
   --source <account> --network testnet \
   -- __constructor --admin <G…> --fee_manager <G…>
 
 stellar contract deploy \
-  --wasm target/wasm32-unknown-unknown/release/boost_treasury.wasm \
+  --wasm target/wasm32v1-none/release/boost_treasury.wasm \
   --source <account> --network testnet \
   -- __constructor --admin <G…> --manager <G…>
 ```
 
-Constructor args are positional for `__constructor`; both contracts require the admin signature at deploy.
-
-## Further Reading
-
-- `docs/APY_STABILIZER_PROPOSAL.md` — original proposal
-- `defindex-api/src/vault-ops/` — off-chain fee + boost orchestration service
-- `defindex-indexer/src/parsers/` — event parsers and `parsed.*` schema
+The Stellar CLI maps constructor struct fields to flags (`--admin`, `--fee_manager`, `--manager`). Both contracts call `admin.require_auth()` in `__constructor`, so the admin must sign the deploy invocation.

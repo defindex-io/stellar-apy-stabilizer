@@ -13,4 +13,5 @@ pub enum ContractError {
     MultiAssetVaultNotSupported = 120,
     InvalidAmount = 130,
     InsufficientBudget = 131,
+    Overflow = 140,
 }

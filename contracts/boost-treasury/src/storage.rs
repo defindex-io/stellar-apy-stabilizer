@@ -28,8 +28,15 @@ pub struct Campaign {
 }
 
 impl Campaign {
+    /// Returns the remaining boost budget. Invariant enforced by
+    /// `require_positive_amount` + `InsufficientBudget` checks: result is always
+    /// ≥ 0 and never overflows. The `checked_sub` chain is defensive and fails
+    /// closed (returns 0) if the invariant is ever violated.
     pub fn available(&self) -> i128 {
-        self.total_deposited - self.total_boosted - self.total_withdrawn
+        self.total_deposited
+            .checked_sub(self.total_boosted)
+            .and_then(|v| v.checked_sub(self.total_withdrawn))
+            .unwrap_or(0)
     }
 }
 

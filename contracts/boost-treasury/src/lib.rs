@@ -207,7 +207,10 @@ impl BoostTreasury {
             &amount,
         );
 
-        campaign.total_deposited += amount;
+        campaign.total_deposited = campaign
+            .total_deposited
+            .checked_add(amount)
+            .unwrap_or_else(|| panic_with_error!(&env, ContractError::Overflow));
         storage::set_campaign(&env, &vault, &campaign);
 
         events::Deposited {
@@ -237,7 +240,10 @@ impl BoostTreasury {
             &amount,
         );
 
-        campaign.total_boosted += amount;
+        campaign.total_boosted = campaign
+            .total_boosted
+            .checked_add(amount)
+            .unwrap_or_else(|| panic_with_error!(&env, ContractError::Overflow));
         campaign.last_boosted_at = env.ledger().timestamp();
         storage::set_campaign(&env, &vault, &campaign);
 
@@ -262,8 +268,12 @@ impl BoostTreasury {
             &amount,
         );
 
+        let new_total_withdrawn = campaign
+            .total_withdrawn
+            .checked_add(amount)
+            .unwrap_or_else(|| panic_with_error!(&env, ContractError::Overflow));
         let updated = Campaign {
-            total_withdrawn: campaign.total_withdrawn + amount,
+            total_withdrawn: new_total_withdrawn,
             ..campaign
         };
         storage::set_campaign(&env, &vault, &updated);
