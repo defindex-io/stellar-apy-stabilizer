@@ -9,6 +9,5 @@ pub enum ContractError {
     VaultNotRegistered = 111,
     FeeOutOfBounds = 120,
     InvalidFeeBounds = 121,
-    InvalidTargetApy = 122,
     NoPendingAdmin = 123,
 }

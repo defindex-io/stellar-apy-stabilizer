@@ -37,20 +37,9 @@ fn require_vault_admin(env: &Env, vault: &Address) -> VaultConfig {
 
 // --- Validation ---
 
-/// Upper cap for target APY: 1000% (100_000 bps). Anything higher is almost
-/// certainly a misconfiguration, and we'd rather fail loudly than silently
-/// store nonsense partners might rely on.
-pub const MAX_TARGET_APY_BPS: u32 = 100_000;
-
 fn validate_fee_bounds(env: &Env, min_fee_bps: u32, max_fee_bps: u32) {
     if min_fee_bps > max_fee_bps || max_fee_bps > 10_000 {
         panic_with_error!(env, ContractError::InvalidFeeBounds);
-    }
-}
-
-fn validate_target_apy(env: &Env, target_apy_bps: u32) {
-    if target_apy_bps > MAX_TARGET_APY_BPS {
-        panic_with_error!(env, ContractError::InvalidTargetApy);
     }
 }
 
@@ -169,7 +158,6 @@ impl FeeProxy {
         }
 
         validate_fee_bounds(&env, config.min_fee_bps, config.max_fee_bps);
-        validate_target_apy(&env, config.target_apy_bps);
 
         let proxy = env.current_contract_address();
 
@@ -276,7 +264,6 @@ impl FeeProxy {
 
     pub fn set_target_apy(env: Env, vault: Address, target_apy_bps: u32) {
         extend_instance_ttl(&env);
-        validate_target_apy(&env, target_apy_bps);
         let mut config = require_vault_admin(&env, &vault);
 
         config.target_apy_bps = target_apy_bps;

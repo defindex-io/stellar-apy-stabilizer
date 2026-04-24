@@ -288,63 +288,50 @@ fn test_set_fee_bounds_invalid() {
 }
 
 // ---------------------------------------------------------------------------
-// Target APY cap tests (L-1)
+// Target APY accepts full u32 range (no validation)
 // ---------------------------------------------------------------------------
 
 #[test]
-#[should_panic(expected = "Error(Contract, #122)")]
-fn test_register_vault_target_apy_too_high() {
+fn test_register_vault_target_apy_accepts_zero_and_max() {
     let env = Env::default();
     env.mock_all_auths();
     let (client, _admin, _fee_manager) = setup(&env);
 
     let vault_admin = Address::generate(&env);
-    let vault_id = env.register(MockVault, (&client.address,));
-    let config = VaultConfig {
+
+    let vault_zero = env.register(MockVault, (&client.address,));
+    let config_zero = VaultConfig {
         admin: vault_admin.clone(),
-        target_apy_bps: 100_001, // > MAX_TARGET_APY_BPS
+        target_apy_bps: 0,
         min_fee_bps: 0,
         max_fee_bps: 100,
     };
-    client.register_vault(&vault_admin, &vault_id, &config);
-}
+    client.register_vault(&vault_admin, &vault_zero, &config_zero);
+    assert_eq!(client.get_vault_config(&vault_zero).target_apy_bps, 0);
 
-#[test]
-fn test_register_vault_target_apy_at_max_ok() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let (client, _admin, _fee_manager) = setup(&env);
-
-    let vault_admin = Address::generate(&env);
-    let vault_id = env.register(MockVault, (&client.address,));
-    let config = VaultConfig {
+    let vault_max = env.register(MockVault, (&client.address,));
+    let config_max = VaultConfig {
         admin: vault_admin.clone(),
-        target_apy_bps: 100_000, // exactly at cap
+        target_apy_bps: u32::MAX,
         min_fee_bps: 0,
         max_fee_bps: 100,
     };
-    client.register_vault(&vault_admin, &vault_id, &config);
-    assert_eq!(client.get_vault_config(&vault_id).target_apy_bps, 100_000);
+    client.register_vault(&vault_admin, &vault_max, &config_max);
+    assert_eq!(client.get_vault_config(&vault_max).target_apy_bps, u32::MAX);
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #122)")]
-fn test_set_target_apy_too_high() {
+fn test_set_target_apy_accepts_zero_and_max() {
     let env = Env::default();
     env.mock_all_auths();
     let (client, _admin, _fee_manager, _vault_admin, vault_id) =
         setup_with_vault(&env);
-    client.set_target_apy(&vault_id, &100_001u32);
-}
 
-#[test]
-fn test_set_target_apy_at_max_ok() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let (client, _admin, _fee_manager, _vault_admin, vault_id) =
-        setup_with_vault(&env);
-    client.set_target_apy(&vault_id, &100_000u32);
-    assert_eq!(client.get_vault_config(&vault_id).target_apy_bps, 100_000);
+    client.set_target_apy(&vault_id, &0u32);
+    assert_eq!(client.get_vault_config(&vault_id).target_apy_bps, 0);
+
+    client.set_target_apy(&vault_id, &u32::MAX);
+    assert_eq!(client.get_vault_config(&vault_id).target_apy_bps, u32::MAX);
 }
 
 // ---------------------------------------------------------------------------

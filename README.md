@@ -77,12 +77,12 @@ A Manager-role holder for DeFindex vaults. Partners register their vault and del
 **Read-only** — `get_admin`, `get_fee_manager`, `get_pending_admin`, `get_vault_config`.
 
 **Entrypoints**
-- `register_vault(admin, vault, config)` — `admin` is the caller and must be the vault's **current Manager** (the proxy calls `vault.set_manager(proxy)` on success, which requires the old manager's auth). `config.admin` is the address that controls this vault through the proxy going forward — it does **not** need to equal `admin`, allowing partners to delegate to a different operational key. Validates `max_fee_bps ≤ 10_000`, `min_fee_bps ≤ max_fee_bps`, and `target_apy_bps ≤ MAX_TARGET_APY_BPS` (`100_000` bps = 1000%, a loud-failure guard against misconfiguration).
+- `register_vault(admin, vault, config)` — `admin` is the caller and must be the vault's **current Manager** (the proxy calls `vault.set_manager(proxy)` on success, which requires the old manager's auth). `config.admin` is the address that controls this vault through the proxy going forward — it does **not** need to equal `admin`, allowing partners to delegate to a different operational key. Validates `max_fee_bps ≤ 10_000` and `min_fee_bps ≤ max_fee_bps`; `target_apy_bps` accepts the full `u32` range.
 - `unregister_vault` — vault admin only; returns Manager role to `config.admin` and removes the vault config.
 - `lock_fees(caller, vault, new_fee_bps)` — fee manager or vault admin. If `new_fee_bps = Some(x)`, enforces `min ≤ x ≤ max` before the passthrough and emits `FeesLocked`. If `None`, skips validation and passes through without emitting (re-locks the existing fee).
 - `distribute_fees` — fee manager or vault admin; calls the vault via the Manager role.
 - `release_fees` — vault admin only; calls the vault via the Manager role (no event emitted).
-- `set_target_apy` — vault admin; re-validates the APY cap.
+- `set_target_apy` — vault admin; stores the new target (full `u32` range allowed).
 - `set_fee_bounds` — vault admin; re-validates fee bounds.
 - `set_vault_manager(vault, new_manager)` — vault admin. Passes through `set_manager` on the vault; if `new_manager ≠ proxy`, also removes the vault config and emits `VaultUnregistered` (the proxy can no longer control the vault).
 - Passthroughs — vault admin acts on the vault through the proxy without losing the Manager role: `upgrade_vault`, `set_vault_fee_receiver`, `set_vault_emergency_manager`, `set_vault_rebalance_manager`, `rescue_vault`, `pause_vault_strategy`, `unpause_vault_strategy`.
