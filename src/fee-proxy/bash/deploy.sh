@@ -40,7 +40,7 @@ readonly TESTNET_PASSPHRASE="Test SDF Network ; September 2015"
 readonly TESTNET_XLM_SAC="CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
 
 readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-readonly WORKSPACE_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+readonly WORKSPACE_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 readonly WASM_PATH="$WORKSPACE_ROOT/target/wasm32v1-none/release/fee_proxy.wasm"
 
 # --- Helpers ---

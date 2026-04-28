@@ -1,18 +1,13 @@
 #!/usr/bin/env bash
 #
-# Deposit tokens into a BoostTreasury campaign.
-#
-# Reads the boost-treasury address from <workspace_root>/<network>.contracts.json
-# (falls back to prompting if the file or key is missing).
+# Deploy the BoostTreasury contract on testnet or mainnet from a local WASM build.
 #
 # Usage:
-#   Interactive:  ./deposit.sh
-#   Positional:   ./deposit.sh <network> <source_account> <vault> <amount>
+#   Interactive:  ./deploy.sh
+#   Positional:   ./deploy.sh <network> <source_account> <admin> <manager>
 #
-# <amount> is the token's raw stroops/units (positive i128).
-# The signer is also the depositor: the contract pulls tokens via
-# `token::transfer(signer, treasury, amount)` so signer needs a sufficient
-# balance AND approval in the underlying token.
+# Pass "-" for <admin> to default it to the deployer's own public key.
+# Any missing positional arg is prompted for interactively.
 
 set -euo pipefail
 
@@ -32,9 +27,6 @@ cat <<'BANNER'
    ░▒▓█▓▒░   ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░      ░▒▓█▓▒░░▒▓█▓▒░      ░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░  ░▒▓█▓▒░
    ░▒▓█▓▒░   ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░      ░▒▓█▓▒░░▒▓█▓▒░      ░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░  ░▒▓█▓▒░
    ░▒▓█▓▒░   ░▒▓█▓▒░░▒▓█▓▒░▒▓████████▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓███████▓▒░ ░▒▓██████▓▒░░▒▓█▓▒░░▒▓█▓▒░  ░▒▓█▓▒░
-╔══════════════════════════════════════════════╗
-║   BOOST TREASURY  ·  DEPOSIT                 ║
-╚══════════════════════════════════════════════╝
 BANNER
 
 # --- Network constants ---
@@ -48,8 +40,8 @@ readonly TESTNET_PASSPHRASE="Test SDF Network ; September 2015"
 readonly TESTNET_XLM_SAC="CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
 
 readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-readonly WORKSPACE_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-readonly BOOST_TREASURY_KEY="boost-treasury"
+readonly WORKSPACE_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+readonly WASM_PATH="$WORKSPACE_ROOT/target/wasm32v1-none/release/boost_treasury.wasm"
 
 # --- Helpers ---
 
@@ -91,14 +83,6 @@ resolve_required() {
   fi
 }
 
-require_positive_i128() {
-  local label="$1" value="$2"
-  # Positive integer, no leading zero. The contract rejects <= 0; i128 upper
-  # bound is left to the network to enforce.
-  [[ "$value" =~ ^[1-9][0-9]*$ ]] \
-    || die "$label must be a positive integer, got '$value'"
-}
-
 run_with_spinner() {
   local label="$1"; shift
   local tmp rc_file rc
@@ -134,7 +118,7 @@ ensure_network() {
   fi
 }
 
-ensure_signer() {
+ensure_deployer() {
   if ! stellar keys ls 2>/dev/null | grep -qw "$SOURCE_ACCOUNT"; then
     die "identity '$SOURCE_ACCOUNT' not found. Create one first with:
     stellar keys generate $SOURCE_ACCOUNT --network $NETWORK
@@ -142,8 +126,8 @@ ensure_signer() {
   Then fund the account with XLM before re-running this script."
   fi
 
-  SIGNER_PUBKEY="$(stellar keys public-key "$SOURCE_ACCOUNT")"
-  echo "✓ identity '$SOURCE_ACCOUNT' → $SIGNER_PUBKEY"
+  DEPLOYER_PUBKEY="$(stellar keys public-key "$SOURCE_ACCOUNT")"
+  echo "✓ identity '$SOURCE_ACCOUNT' → $DEPLOYER_PUBKEY"
 
   local balance_output balance_stroops balance_xlm
   if ! balance_output="$(run_with_spinner "checking XLM balance..." \
@@ -152,34 +136,28 @@ ensure_signer() {
       --source-account "$SOURCE_ACCOUNT" \
       --network "$NETWORK" \
       --send no \
-      -- balance --id "$SIGNER_PUBKEY")"; then
-    die "failed to fetch XLM balance for $SIGNER_PUBKEY:
+      -- balance --id "$DEPLOYER_PUBKEY")"; then
+    die "failed to fetch XLM balance for $DEPLOYER_PUBKEY:
 $balance_output"
   fi
 
   balance_stroops="${balance_output//\"/}"
   [[ -n "$balance_stroops" && "$balance_stroops" != "0" ]] \
-    || die "signer has 0 XLM on $NETWORK. Fund $SIGNER_PUBKEY before retrying."
+    || die "deployer has 0 XLM on $NETWORK. Fund $DEPLOYER_PUBKEY before retrying."
 
   balance_xlm="$(awk -v s="$balance_stroops" 'BEGIN { printf "%.7f", s / 10000000 }')"
   echo "  balance: $balance_xlm XLM ($balance_stroops stroops)"
 }
 
-load_boost_treasury_id() {
-  command -v jq >/dev/null 2>&1 || die "jq is required (install: brew install jq)"
-
-  local contracts_file="$WORKSPACE_ROOT/$NETWORK.contracts.json"
-  if [[ -f "$contracts_file" ]]; then
-    BOOST_TREASURY_ID="$(jq -r --arg k "$BOOST_TREASURY_KEY" '.[$k] // empty' "$contracts_file")"
-    if [[ -n "$BOOST_TREASURY_ID" ]]; then
-      echo "✓ boost-treasury ($NETWORK): $BOOST_TREASURY_ID  (from $contracts_file)"
-      return
-    fi
-    echo "⚠  '$BOOST_TREASURY_KEY' not found in $contracts_file"
-  else
-    echo "⚠  $contracts_file not found"
+ensure_wasm() {
+  if [[ -f "$WASM_PATH" ]]; then
+    echo "✓ wasm found: $WASM_PATH"
+    return
   fi
-  BOOST_TREASURY_ID=$(prompt_required "BoostTreasury contract id")
+  echo "→ wasm not found, building boost-treasury..."
+  ( cd "$WORKSPACE_ROOT" && stellar contract build --package boost-treasury )
+  [[ -f "$WASM_PATH" ]] || die "build completed but wasm not at expected path: $WASM_PATH"
+  echo "✓ built: $WASM_PATH"
 }
 
 # --- Collect args ---
@@ -199,38 +177,43 @@ case "$NETWORK" in
   *) die "unknown network: '$NETWORK' (expected 'testnet' or 'mainnet')" ;;
 esac
 
-SOURCE_ACCOUNT=$(resolve_required "Signer identity (the depositor)" "${2-__UNSET__}")
+SOURCE_ACCOUNT=$(resolve_required "Deployer identity (stellar keys name)" "${2-__UNSET__}")
 
 ensure_network
-ensure_signer
-load_boost_treasury_id
+ensure_deployer
+ensure_wasm
 echo
 
-VAULT=$(resolve_required  "Vault contract id"            "${3-__UNSET__}")
-AMOUNT=$(resolve_required "Amount (positive i128 units)" "${4-__UNSET__}")
-
-require_positive_i128 "amount" "$AMOUNT"
+# The constructor calls admin.require_auth(); the source-account's signature
+# only satisfies that if admin == deployer.
+ADMIN=$(resolve_with_default   "Admin address"   "$DEPLOYER_PUBKEY" "${3-__UNSET__}")
+MANAGER=$(resolve_required     "Manager address"                    "${4-__UNSET__}")
 
 echo
 echo "──────────────────────────────────────"
-echo " network:         $NETWORK"
-echo " signer:          $SOURCE_ACCOUNT ($SIGNER_PUBKEY)"
-echo " boost-treasury:  $BOOST_TREASURY_ID"
-echo " vault:           $VAULT"
-echo " amount:          $AMOUNT"
+echo " network:      $NETWORK"
+echo " source:       $SOURCE_ACCOUNT ($DEPLOYER_PUBKEY)"
+echo " wasm:         $WASM_PATH"
+echo " admin:        $ADMIN"
+echo " manager:      $MANAGER"
 echo "──────────────────────────────────────"
 
-read -rp "Deposit now? [y/N] " confirm
+if [[ "$ADMIN" != "$DEPLOYER_PUBKEY" ]]; then
+  echo
+  echo "⚠  admin ≠ deployer. The constructor calls admin.require_auth(); this will"
+  echo "   fail unless the admin key signs the deployment transaction."
+fi
+
+read -rp "Deploy now? [y/N] " confirm
 [[ "$confirm" =~ ^[yY]$ ]] || { echo "aborted"; exit 0; }
 
-stellar contract invoke \
-  --id "$BOOST_TREASURY_ID" \
+DEPLOYED_ADDRESS="$(stellar contract deploy \
+  --wasm "$WASM_PATH" \
   --source-account "$SOURCE_ACCOUNT" \
   --network "$NETWORK" \
-  -- deposit \
-  --caller "$SIGNER_PUBKEY" \
-  --vault "$VAULT" \
-  --amount "$AMOUNT"
+  -- \
+  --admin "$ADMIN" \
+  --manager "$MANAGER")"
 
 echo
-echo "✅ Deposited $AMOUNT into campaign for vault $VAULT"
+echo "✅ Deployed BoostTreasury: $DEPLOYED_ADDRESS"

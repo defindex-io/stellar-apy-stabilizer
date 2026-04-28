@@ -1,16 +1,18 @@
 #!/usr/bin/env bash
 #
-# Register a campaign on the deployed BoostTreasury contract.
+# Deposit tokens into a BoostTreasury campaign.
 #
 # Reads the boost-treasury address from <workspace_root>/<network>.contracts.json
 # (falls back to prompting if the file or key is missing).
 #
 # Usage:
-#   Interactive:  ./register_campaign.sh
-#   Positional:   ./register_campaign.sh <network> <source_account> <vault>
+#   Interactive:  ./deposit.sh
+#   Positional:   ./deposit.sh <network> <source_account> <vault> <amount>
 #
-# The signer MUST be the BoostTreasury admin.
-# The vault must expose `get_assets()` and return exactly one asset.
+# <amount> is the token's raw stroops/units (positive i128).
+# The signer is also the depositor: the contract pulls tokens via
+# `token::transfer(signer, treasury, amount)` so signer needs a sufficient
+# balance AND approval in the underlying token.
 
 set -euo pipefail
 
@@ -31,7 +33,7 @@ cat <<'BANNER'
    ░▒▓█▓▒░   ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░      ░▒▓█▓▒░░▒▓█▓▒░      ░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░  ░▒▓█▓▒░
    ░▒▓█▓▒░   ░▒▓█▓▒░░▒▓█▓▒░▒▓████████▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓███████▓▒░ ░▒▓██████▓▒░░▒▓█▓▒░░▒▓█▓▒░  ░▒▓█▓▒░
 ╔══════════════════════════════════════════════╗
-║   BOOST TREASURY  ·  REGISTER CAMPAIGN       ║
+║   BOOST TREASURY  ·  DEPOSIT                 ║
 ╚══════════════════════════════════════════════╝
 BANNER
 
@@ -46,7 +48,7 @@ readonly TESTNET_PASSPHRASE="Test SDF Network ; September 2015"
 readonly TESTNET_XLM_SAC="CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
 
 readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-readonly WORKSPACE_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+readonly WORKSPACE_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 readonly BOOST_TREASURY_KEY="boost-treasury"
 
 # --- Helpers ---
@@ -87,6 +89,14 @@ resolve_required() {
     [[ -n "$supplied" && "$supplied" != "-" ]] || die "$label is required"
     printf '%s' "$supplied"
   fi
+}
+
+require_positive_i128() {
+  local label="$1" value="$2"
+  # Positive integer, no leading zero. The contract rejects <= 0; i128 upper
+  # bound is left to the network to enforce.
+  [[ "$value" =~ ^[1-9][0-9]*$ ]] \
+    || die "$label must be a positive integer, got '$value'"
 }
 
 run_with_spinner() {
@@ -189,14 +199,17 @@ case "$NETWORK" in
   *) die "unknown network: '$NETWORK' (expected 'testnet' or 'mainnet')" ;;
 esac
 
-SOURCE_ACCOUNT=$(resolve_required "Signer identity (must be BoostTreasury admin)" "${2-__UNSET__}")
+SOURCE_ACCOUNT=$(resolve_required "Signer identity (the depositor)" "${2-__UNSET__}")
 
 ensure_network
 ensure_signer
 load_boost_treasury_id
 echo
 
-VAULT=$(resolve_required "Vault contract id" "${3-__UNSET__}")
+VAULT=$(resolve_required  "Vault contract id"            "${3-__UNSET__}")
+AMOUNT=$(resolve_required "Amount (positive i128 units)" "${4-__UNSET__}")
+
+require_positive_i128 "amount" "$AMOUNT"
 
 echo
 echo "──────────────────────────────────────"
@@ -204,17 +217,20 @@ echo " network:         $NETWORK"
 echo " signer:          $SOURCE_ACCOUNT ($SIGNER_PUBKEY)"
 echo " boost-treasury:  $BOOST_TREASURY_ID"
 echo " vault:           $VAULT"
+echo " amount:          $AMOUNT"
 echo "──────────────────────────────────────"
 
-read -rp "Register campaign now? [y/N] " confirm
+read -rp "Deposit now? [y/N] " confirm
 [[ "$confirm" =~ ^[yY]$ ]] || { echo "aborted"; exit 0; }
 
 stellar contract invoke \
   --id "$BOOST_TREASURY_ID" \
   --source-account "$SOURCE_ACCOUNT" \
   --network "$NETWORK" \
-  -- register_campaign \
-  --vault "$VAULT"
+  -- deposit \
+  --caller "$SIGNER_PUBKEY" \
+  --vault "$VAULT" \
+  --amount "$AMOUNT"
 
 echo
-echo "✅ Campaign registered for vault $VAULT"
+echo "✅ Deposited $AMOUNT into campaign for vault $VAULT"

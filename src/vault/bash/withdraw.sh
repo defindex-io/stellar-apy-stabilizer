@@ -1,24 +1,31 @@
 #!/usr/bin/env bash
 #
-# Unregister a vault from the deployed FeeProxy contract.
+# Withdraw from a DeFindex vault.
 #
-# Reads the fee-proxy address from <workspace_root>/<network>.contracts.json
-# (falls back to prompting if the file or key is missing).
+# Wraps `stellar contract invoke -- withdraw`. Shares and min-out amounts are
+# entered as human-readable floats with up to 7 fractional digits and converted
+# to i128 stroop units (e.g. 0.1 → 1000000). Multi-asset vaults take a
+# comma-separated list for min_amounts_out: "0.1,0.5" → [1000000, 5000000].
 #
 # Usage:
-#   Interactive:  ./unregister_vault.sh
-#   Positional:   ./unregister_vault.sh <network> <source_account> <vault>
+#   Interactive:  ./withdraw.sh
+#   Positional:   ./withdraw.sh <network> <source_account> <vault> \
+#                               <withdraw_shares> <min_amounts_out>
 #
-# Any missing positional arg is prompted for interactively.
-#
-# The signer MUST be the vault's registered config.admin — the proxy enforces
-# `config.admin.require_auth()` before handing the Manager role back.
+# Pass "-" for any optional arg to accept its default.
 
 set -euo pipefail
 
 cat <<'BANNER'
+░▒▓█▓▒░░▒▓█▓▒░░▒▓██████▓▒░░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░   ░▒▓████████▓▒░
+░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░      ░▒▓█▓▒░
+ ░▒▓█▓▒▒▓█▓▒░░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░      ░▒▓█▓▒░
+ ░▒▓█▓▒▒▓█▓▒░░▒▓████████▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░      ░▒▓█▓▒░
+  ░▒▓█▓▓█▓▒░ ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░      ░▒▓█▓▒░
+  ░▒▓█▓▓█▓▒░ ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░      ░▒▓█▓▒░
+   ░▒▓██▓▒░  ░▒▓█▓▒░░▒▓█▓▒░░▒▓██████▓▒░░▒▓████████▓▒░▒▓█▓▒░
 ╔══════════════════════════════════════════════╗
-║   FEE PROXY  ·  UNREGISTER VAULT             ║
+║   DEFINDEX VAULT  ·  WITHDRAW                ║
 ╚══════════════════════════════════════════════╝
 BANNER
 
@@ -32,9 +39,7 @@ readonly TESTNET_RPC_URL="https://soroban-testnet.stellar.org"
 readonly TESTNET_PASSPHRASE="Test SDF Network ; September 2015"
 readonly TESTNET_XLM_SAC="CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
 
-readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-readonly WORKSPACE_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-readonly FEE_PROXY_KEY="fee-proxy"
+readonly TOKEN_DECIMALS=7
 
 # --- Helpers ---
 
@@ -74,6 +79,59 @@ resolve_required() {
     [[ -n "$supplied" && "$supplied" != "-" ]] || die "$label is required"
     printf '%s' "$supplied"
   fi
+}
+
+# Convert a human-readable decimal string (e.g. "0.1", "1.5") to the integer
+# stroop representation with TOKEN_DECIMALS digits. Pure string math — no
+# binary-float precision loss.
+float_to_stroops() {
+  local value="$1"
+  local sign="" int_part frac_part=""
+
+  if [[ "$value" == -* ]]; then
+    sign="-"
+    value="${value#-}"
+  fi
+
+  if [[ "$value" == *.* ]]; then
+    int_part="${value%%.*}"
+    frac_part="${value##*.}"
+  else
+    int_part="$value"
+  fi
+
+  [[ "$int_part" =~ ^[0-9]+$ ]] || die "invalid number: '$1'"
+  [[ -z "$frac_part" || "$frac_part" =~ ^[0-9]+$ ]] || die "invalid number: '$1'"
+  (( ${#frac_part} <= TOKEN_DECIMALS )) \
+    || die "too many fractional digits in '$1' (max $TOKEN_DECIMALS)"
+
+  while (( ${#frac_part} < TOKEN_DECIMALS )); do
+    frac_part="${frac_part}0"
+  done
+
+  local combined="${int_part}${frac_part}"
+  combined="${combined#"${combined%%[!0]*}"}"
+  [[ -z "$combined" ]] && combined="0"
+
+  printf '%s%s' "$sign" "$combined"
+}
+
+# stellar-cli expects i128 values as quoted strings inside Vec<i128> JSON.
+floats_to_json_array() {
+  local csv="$1"
+  local -a parts=()
+  local part stroops
+  IFS=',' read -ra raw <<< "$csv"
+  for part in "${raw[@]}"; do
+    part="${part#"${part%%[![:space:]]*}"}"
+    part="${part%"${part##*[![:space:]]}"}"
+    [[ -n "$part" ]] || die "empty entry in list: '$csv'"
+    stroops="$(float_to_stroops "$part")"
+    parts+=("\"$stroops\"")
+  done
+  local joined
+  joined="$(IFS=','; printf '%s' "${parts[*]}")"
+  printf '[%s]' "$joined"
 }
 
 run_with_spinner() {
@@ -142,39 +200,6 @@ $balance_output"
   echo "  balance: $balance_xlm XLM ($balance_stroops stroops)"
 }
 
-load_fee_proxy_id() {
-  command -v jq >/dev/null 2>&1 || die "jq is required (install: brew install jq)"
-
-  local contracts_file="$WORKSPACE_ROOT/$NETWORK.contracts.json"
-  if [[ -f "$contracts_file" ]]; then
-    FEE_PROXY_ID="$(jq -r --arg k "$FEE_PROXY_KEY" '.[$k] // empty' "$contracts_file")"
-    if [[ -n "$FEE_PROXY_ID" ]]; then
-      echo "✓ fee-proxy ($NETWORK): $FEE_PROXY_ID  (from $contracts_file)"
-      return
-    fi
-    echo "⚠  '$FEE_PROXY_KEY' not found in $contracts_file"
-  else
-    echo "⚠  $contracts_file not found"
-  fi
-  FEE_PROXY_ID=$(prompt_required "FeeProxy contract id")
-}
-
-# Fetch the current vault config so the user sees what they're about to remove.
-fetch_vault_config() {
-  local output
-  if ! output="$(run_with_spinner "fetching current vault config..." \
-    stellar contract invoke \
-      --id "$FEE_PROXY_ID" \
-      --source-account "$SOURCE_ACCOUNT" \
-      --network "$NETWORK" \
-      --send no \
-      -- get_vault_config --vault "$VAULT")"; then
-    die "vault '$VAULT' is not registered (or read failed):
-$output"
-  fi
-  echo "$output"
-}
-
 # --- Collect args ---
 
 NETWORK=$(resolve_with_default "Network (testnet/mainnet)" "mainnet" "${1-__UNSET__}")
@@ -192,38 +217,43 @@ case "$NETWORK" in
   *) die "unknown network: '$NETWORK' (expected 'testnet' or 'mainnet')" ;;
 esac
 
-SOURCE_ACCOUNT=$(resolve_required "Signer identity (must match the vault's config.admin)" "${2-__UNSET__}")
+SOURCE_ACCOUNT=$(resolve_required "Signer identity (also the 'from' address)" "${2-__UNSET__}")
 
 ensure_network
 ensure_signer
-load_fee_proxy_id
 echo
 
-VAULT=$(resolve_required "Vault contract id" "${3-__UNSET__}")
+VAULT=$(resolve_required                   "Vault contract id"                           "${3-__UNSET__}")
+WITHDRAW_SHARES_RAW=$(resolve_with_default "Withdraw shares (float)"                     "0.1" "${4-__UNSET__}")
+MIN_AMOUNTS_OUT_RAW=$(resolve_with_default "Min amounts out (comma-separated floats)"    "0"   "${5-__UNSET__}")
 
-echo
-CURRENT_CONFIG="$(fetch_vault_config)"
+WITHDRAW_SHARES="$(float_to_stroops "$WITHDRAW_SHARES_RAW")"
+MIN_AMOUNTS_OUT_JSON="$(floats_to_json_array "$MIN_AMOUNTS_OUT_RAW")"
 
 echo
 echo "──────────────────────────────────────"
-echo " network:    $NETWORK"
-echo " signer:     $SOURCE_ACCOUNT ($SIGNER_PUBKEY)"
-echo " fee-proxy:  $FEE_PROXY_ID"
-echo " vault:      $VAULT"
+echo " network:           $NETWORK"
+echo " signer (from):     $SOURCE_ACCOUNT ($SIGNER_PUBKEY)"
+echo " vault:             $VAULT"
+echo " withdraw_shares:   $WITHDRAW_SHARES_RAW  →  $WITHDRAW_SHARES"
+echo " min_amounts_out:   $MIN_AMOUNTS_OUT_RAW  →  $MIN_AMOUNTS_OUT_JSON"
 echo "──────────────────────────────────────"
-echo " current config:"
-echo "$CURRENT_CONFIG" | sed 's/^/   /'
-echo "──────────────────────────────────────"
+echo
+echo "one-liner (copy/paste):"
+echo "stellar contract invoke --id $VAULT --source-account $SOURCE_ACCOUNT --network $NETWORK -- withdraw --withdraw_shares $WITHDRAW_SHARES --min_amounts_out '$MIN_AMOUNTS_OUT_JSON' --from $SIGNER_PUBKEY"
+echo
 
-read -rp "Unregister now? [y/N] " confirm
+read -rp "Withdraw now? [y/N] " confirm
 [[ "$confirm" =~ ^[yY]$ ]] || { echo "aborted"; exit 0; }
 
 stellar contract invoke \
-  --id "$FEE_PROXY_ID" \
+  --id "$VAULT" \
   --source-account "$SOURCE_ACCOUNT" \
   --network "$NETWORK" \
-  -- unregister_vault \
-  --vault "$VAULT"
+  -- withdraw \
+  --withdraw_shares "$WITHDRAW_SHARES" \
+  --min_amounts_out "$MIN_AMOUNTS_OUT_JSON" \
+  --from "$SIGNER_PUBKEY"
 
 echo
-echo "✅ Vault $VAULT unregistered from FeeProxy $FEE_PROXY_ID"
+echo "✅ Withdraw submitted to vault $VAULT"

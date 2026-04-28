@@ -1,37 +1,24 @@
 #!/usr/bin/env bash
 #
-# Unregister a campaign from the deployed BoostTreasury contract.
+# Unregister a vault from the deployed FeeProxy contract.
 #
-# Reads the boost-treasury address from <workspace_root>/<network>.contracts.json
+# Reads the fee-proxy address from <workspace_root>/<network>.contracts.json
 # (falls back to prompting if the file or key is missing).
 #
 # Usage:
-#   Interactive:  ./unregister_campaign.sh
-#   Positional:   ./unregister_campaign.sh <network> <source_account> <vault>
+#   Interactive:  ./unregister_vault.sh
+#   Positional:   ./unregister_vault.sh <network> <source_account> <vault>
 #
-# The signer MUST be the BoostTreasury admin.
-# The campaign must have zero available balance (deposited - boosted - withdrawn == 0).
+# Any missing positional arg is prompted for interactively.
+#
+# The signer MUST be the vault's registered config.admin — the proxy enforces
+# `config.admin.require_auth()` before handing the Manager role back.
 
 set -euo pipefail
 
 cat <<'BANNER'
-░▒▓███████▓▒░ ░▒▓██████▓▒░ ░▒▓██████▓▒░ ░▒▓███████▓▒░▒▓████████▓▒░
-░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░         ░▒▓█▓▒░
-░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░         ░▒▓█▓▒░
-░▒▓███████▓▒░░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░░▒▓██████▓▒░   ░▒▓█▓▒░
-░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░      ░▒▓█▓▒░  ░▒▓█▓▒░
-░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░      ░▒▓█▓▒░  ░▒▓█▓▒░
-░▒▓███████▓▒░ ░▒▓██████▓▒░ ░▒▓██████▓▒░░▒▓███████▓▒░   ░▒▓█▓▒░
-
-░▒▓████████▓▒░▒▓███████▓▒░░▒▓████████▓▒░░▒▓██████▓▒░ ░▒▓███████▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓███████▓▒░░▒▓█▓▒░░▒▓█▓▒░
-   ░▒▓█▓▒░   ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░      ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░      ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░
-   ░▒▓█▓▒░   ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░      ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░      ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░
-   ░▒▓█▓▒░   ░▒▓███████▓▒░░▒▓██████▓▒░ ░▒▓████████▓▒░░▒▓██████▓▒░░▒▓█▓▒░░▒▓█▓▒░▒▓███████▓▒░ ░▒▓██████▓▒░
-   ░▒▓█▓▒░   ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░      ░▒▓█▓▒░░▒▓█▓▒░      ░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░  ░▒▓█▓▒░
-   ░▒▓█▓▒░   ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░      ░▒▓█▓▒░░▒▓█▓▒░      ░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░  ░▒▓█▓▒░
-   ░▒▓█▓▒░   ░▒▓█▓▒░░▒▓█▓▒░▒▓████████▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓███████▓▒░ ░▒▓██████▓▒░░▒▓█▓▒░░▒▓█▓▒░  ░▒▓█▓▒░
 ╔══════════════════════════════════════════════╗
-║   BOOST TREASURY  ·  UNREGISTER CAMPAIGN     ║
+║   FEE PROXY  ·  UNREGISTER VAULT             ║
 ╚══════════════════════════════════════════════╝
 BANNER
 
@@ -46,8 +33,8 @@ readonly TESTNET_PASSPHRASE="Test SDF Network ; September 2015"
 readonly TESTNET_XLM_SAC="CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
 
 readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-readonly WORKSPACE_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-readonly BOOST_TREASURY_KEY="boost-treasury"
+readonly WORKSPACE_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+readonly FEE_PROXY_KEY="fee-proxy"
 
 # --- Helpers ---
 
@@ -155,34 +142,34 @@ $balance_output"
   echo "  balance: $balance_xlm XLM ($balance_stroops stroops)"
 }
 
-load_boost_treasury_id() {
+load_fee_proxy_id() {
   command -v jq >/dev/null 2>&1 || die "jq is required (install: brew install jq)"
 
   local contracts_file="$WORKSPACE_ROOT/$NETWORK.contracts.json"
   if [[ -f "$contracts_file" ]]; then
-    BOOST_TREASURY_ID="$(jq -r --arg k "$BOOST_TREASURY_KEY" '.[$k] // empty' "$contracts_file")"
-    if [[ -n "$BOOST_TREASURY_ID" ]]; then
-      echo "✓ boost-treasury ($NETWORK): $BOOST_TREASURY_ID  (from $contracts_file)"
+    FEE_PROXY_ID="$(jq -r --arg k "$FEE_PROXY_KEY" '.[$k] // empty' "$contracts_file")"
+    if [[ -n "$FEE_PROXY_ID" ]]; then
+      echo "✓ fee-proxy ($NETWORK): $FEE_PROXY_ID  (from $contracts_file)"
       return
     fi
-    echo "⚠  '$BOOST_TREASURY_KEY' not found in $contracts_file"
+    echo "⚠  '$FEE_PROXY_KEY' not found in $contracts_file"
   else
     echo "⚠  $contracts_file not found"
   fi
-  BOOST_TREASURY_ID=$(prompt_required "BoostTreasury contract id")
+  FEE_PROXY_ID=$(prompt_required "FeeProxy contract id")
 }
 
-# Fetch the current campaign so the user sees what they're about to remove.
-fetch_campaign() {
+# Fetch the current vault config so the user sees what they're about to remove.
+fetch_vault_config() {
   local output
-  if ! output="$(run_with_spinner "fetching current campaign..." \
+  if ! output="$(run_with_spinner "fetching current vault config..." \
     stellar contract invoke \
-      --id "$BOOST_TREASURY_ID" \
+      --id "$FEE_PROXY_ID" \
       --source-account "$SOURCE_ACCOUNT" \
       --network "$NETWORK" \
       --send no \
-      -- get_campaign --vault "$VAULT")"; then
-    die "campaign for vault '$VAULT' not registered (or read failed):
+      -- get_vault_config --vault "$VAULT")"; then
+    die "vault '$VAULT' is not registered (or read failed):
 $output"
   fi
   echo "$output"
@@ -205,40 +192,38 @@ case "$NETWORK" in
   *) die "unknown network: '$NETWORK' (expected 'testnet' or 'mainnet')" ;;
 esac
 
-SOURCE_ACCOUNT=$(resolve_required "Signer identity (must be BoostTreasury admin)" "${2-__UNSET__}")
+SOURCE_ACCOUNT=$(resolve_required "Signer identity (must match the vault's config.admin)" "${2-__UNSET__}")
 
 ensure_network
 ensure_signer
-load_boost_treasury_id
+load_fee_proxy_id
 echo
 
 VAULT=$(resolve_required "Vault contract id" "${3-__UNSET__}")
 
 echo
-CURRENT_CAMPAIGN="$(fetch_campaign)"
+CURRENT_CONFIG="$(fetch_vault_config)"
 
 echo
 echo "──────────────────────────────────────"
-echo " network:         $NETWORK"
-echo " signer:          $SOURCE_ACCOUNT ($SIGNER_PUBKEY)"
-echo " boost-treasury:  $BOOST_TREASURY_ID"
-echo " vault:           $VAULT"
+echo " network:    $NETWORK"
+echo " signer:     $SOURCE_ACCOUNT ($SIGNER_PUBKEY)"
+echo " fee-proxy:  $FEE_PROXY_ID"
+echo " vault:      $VAULT"
 echo "──────────────────────────────────────"
-echo " current campaign:"
-echo "$CURRENT_CAMPAIGN" | sed 's/^/   /'
-echo "──────────────────────────────────────"
-echo " (note: the call will fail if available balance ≠ 0)"
+echo " current config:"
+echo "$CURRENT_CONFIG" | sed 's/^/   /'
 echo "──────────────────────────────────────"
 
-read -rp "Unregister campaign now? [y/N] " confirm
+read -rp "Unregister now? [y/N] " confirm
 [[ "$confirm" =~ ^[yY]$ ]] || { echo "aborted"; exit 0; }
 
 stellar contract invoke \
-  --id "$BOOST_TREASURY_ID" \
+  --id "$FEE_PROXY_ID" \
   --source-account "$SOURCE_ACCOUNT" \
   --network "$NETWORK" \
-  -- unregister_campaign \
+  -- unregister_vault \
   --vault "$VAULT"
 
 echo
-echo "✅ Campaign for vault $VAULT unregistered"
+echo "✅ Vault $VAULT unregistered from FeeProxy $FEE_PROXY_ID"

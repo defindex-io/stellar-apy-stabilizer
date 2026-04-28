@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 #
-# Send a boost payment from a BoostTreasury campaign to a vault.
+# Withdraw tokens from a BoostTreasury campaign to an arbitrary address.
 #
 # Reads the boost-treasury address from <workspace_root>/<network>.contracts.json
 # (falls back to prompting if the file or key is missing).
 #
 # Usage:
-#   Interactive:  ./boost.sh
-#   Positional:   ./boost.sh <network> <source_account> <vault> <amount>
+#   Interactive:  ./transfer.sh
+#   Positional:   ./transfer.sh <network> <source_account> <vault> <amount> <to>
 #
 # <amount> is the token's raw stroops/units (positive i128).
-# The signer MUST be the BoostTreasury manager.
+# The signer MUST be the BoostTreasury admin.
 # The call fails if amount > campaign.available().
 
 set -euo pipefail
@@ -32,7 +32,7 @@ cat <<'BANNER'
    ░▒▓█▓▒░   ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░      ░▒▓█▓▒░░▒▓█▓▒░      ░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░  ░▒▓█▓▒░
    ░▒▓█▓▒░   ░▒▓█▓▒░░▒▓█▓▒░▒▓████████▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓███████▓▒░ ░▒▓██████▓▒░░▒▓█▓▒░░▒▓█▓▒░  ░▒▓█▓▒░
 ╔══════════════════════════════════════════════╗
-║   BOOST TREASURY  ·  BOOST                   ║
+║   BOOST TREASURY  ·  TRANSFER                ║
 ╚══════════════════════════════════════════════╝
 BANNER
 
@@ -47,7 +47,7 @@ readonly TESTNET_PASSPHRASE="Test SDF Network ; September 2015"
 readonly TESTNET_XLM_SAC="CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
 
 readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-readonly WORKSPACE_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+readonly WORKSPACE_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 readonly BOOST_TREASURY_KEY="boost-treasury"
 
 # --- Helpers ---
@@ -196,15 +196,16 @@ case "$NETWORK" in
   *) die "unknown network: '$NETWORK' (expected 'testnet' or 'mainnet')" ;;
 esac
 
-SOURCE_ACCOUNT=$(resolve_required "Signer identity (must be BoostTreasury manager)" "${2-__UNSET__}")
+SOURCE_ACCOUNT=$(resolve_required "Signer identity (must be BoostTreasury admin)" "${2-__UNSET__}")
 
 ensure_network
 ensure_signer
 load_boost_treasury_id
 echo
 
-VAULT=$(resolve_required  "Vault contract id"            "${3-__UNSET__}")
-AMOUNT=$(resolve_required "Amount (positive i128 units)" "${4-__UNSET__}")
+VAULT=$(resolve_required  "Vault contract id"                  "${3-__UNSET__}")
+AMOUNT=$(resolve_required "Amount (positive i128 units)"       "${4-__UNSET__}")
+TO=$(resolve_required     "Destination address (recipient)"    "${5-__UNSET__}")
 
 require_positive_i128 "amount" "$AMOUNT"
 
@@ -215,18 +216,20 @@ echo " signer:          $SOURCE_ACCOUNT ($SIGNER_PUBKEY)"
 echo " boost-treasury:  $BOOST_TREASURY_ID"
 echo " vault:           $VAULT"
 echo " amount:          $AMOUNT"
+echo " to:              $TO"
 echo "──────────────────────────────────────"
 
-read -rp "Boost now? [y/N] " confirm
+read -rp "Transfer now? [y/N] " confirm
 [[ "$confirm" =~ ^[yY]$ ]] || { echo "aborted"; exit 0; }
 
 stellar contract invoke \
   --id "$BOOST_TREASURY_ID" \
   --source-account "$SOURCE_ACCOUNT" \
   --network "$NETWORK" \
-  -- boost \
+  -- transfer \
   --vault "$VAULT" \
-  --amount "$AMOUNT"
+  --amount "$AMOUNT" \
+  --to "$TO"
 
 echo
-echo "✅ Boosted $AMOUNT to vault $VAULT"
+echo "✅ Transferred $AMOUNT from campaign $VAULT to $TO"

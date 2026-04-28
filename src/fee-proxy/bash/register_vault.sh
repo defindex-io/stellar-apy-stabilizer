@@ -1,38 +1,42 @@
 #!/usr/bin/env bash
 #
-# Withdraw tokens from a BoostTreasury campaign to an arbitrary address.
+# Register a vault with the deployed FeeProxy contract.
 #
-# Reads the boost-treasury address from <workspace_root>/<network>.contracts.json
+# Reads the fee-proxy address from <workspace_root>/<network>.contracts.json
 # (falls back to prompting if the file or key is missing).
 #
 # Usage:
-#   Interactive:  ./transfer.sh
-#   Positional:   ./transfer.sh <network> <source_account> <vault> <amount> <to>
+#   Interactive:  ./register_vault.sh
+#   Positional:   ./register_vault.sh <network> <source_account> <vault> \
+#                                      <config_admin> <target_apy_bps> \
+#                                      <min_fee_bps> <max_fee_bps>
 #
-# <amount> is the token's raw stroops/units (positive i128).
-# The signer MUST be the BoostTreasury admin.
-# The call fails if amount > campaign.available().
+# Pass "-" for <config_admin> to default it to the signer's own public key.
+# Any missing positional arg is prompted for interactively.
+#
+# The signer MUST be the vault's current Manager — the proxy will call
+# `vault.set_manager(proxy)` and require that auth.
 
 set -euo pipefail
 
 cat <<'BANNER'
-░▒▓███████▓▒░ ░▒▓██████▓▒░ ░▒▓██████▓▒░ ░▒▓███████▓▒░▒▓████████▓▒░
-░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░         ░▒▓█▓▒░
-░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░         ░▒▓█▓▒░
-░▒▓███████▓▒░░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░░▒▓██████▓▒░   ░▒▓█▓▒░
-░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░      ░▒▓█▓▒░  ░▒▓█▓▒░
-░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░      ░▒▓█▓▒░  ░▒▓█▓▒░
-░▒▓███████▓▒░ ░▒▓██████▓▒░ ░▒▓██████▓▒░░▒▓███████▓▒░   ░▒▓█▓▒░
+░▒▓████████▓▒░▒▓████████▓▒░▒▓████████▓▒░
+░▒▓█▓▒░      ░▒▓█▓▒░      ░▒▓█▓▒░
+░▒▓█▓▒░      ░▒▓█▓▒░      ░▒▓█▓▒░
+░▒▓██████▓▒░ ░▒▓██████▓▒░ ░▒▓██████▓▒░
+░▒▓█▓▒░      ░▒▓█▓▒░      ░▒▓█▓▒░
+░▒▓█▓▒░      ░▒▓█▓▒░      ░▒▓█▓▒░
+░▒▓█▓▒░      ░▒▓████████▓▒░▒▓████████▓▒░
 
-░▒▓████████▓▒░▒▓███████▓▒░░▒▓████████▓▒░░▒▓██████▓▒░ ░▒▓███████▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓███████▓▒░░▒▓█▓▒░░▒▓█▓▒░
-   ░▒▓█▓▒░   ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░      ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░      ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░
-   ░▒▓█▓▒░   ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░      ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░      ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░
-   ░▒▓█▓▒░   ░▒▓███████▓▒░░▒▓██████▓▒░ ░▒▓████████▓▒░░▒▓██████▓▒░░▒▓█▓▒░░▒▓█▓▒░▒▓███████▓▒░ ░▒▓██████▓▒░
-   ░▒▓█▓▒░   ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░      ░▒▓█▓▒░░▒▓█▓▒░      ░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░  ░▒▓█▓▒░
-   ░▒▓█▓▒░   ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░      ░▒▓█▓▒░░▒▓█▓▒░      ░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░  ░▒▓█▓▒░
-   ░▒▓█▓▒░   ░▒▓█▓▒░░▒▓█▓▒░▒▓████████▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓███████▓▒░ ░▒▓██████▓▒░░▒▓█▓▒░░▒▓█▓▒░  ░▒▓█▓▒░
+░▒▓███████▓▒░░▒▓███████▓▒░ ░▒▓██████▓▒░░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░
+░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░
+░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░
+░▒▓███████▓▒░░▒▓███████▓▒░░▒▓█▓▒░░▒▓█▓▒░░▒▓██████▓▒░ ░▒▓██████▓▒░
+░▒▓█▓▒░      ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░  ░▒▓█▓▒░
+░▒▓█▓▒░      ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░  ░▒▓█▓▒░
+░▒▓█▓▒░      ░▒▓█▓▒░░▒▓█▓▒░░▒▓██████▓▒░░▒▓█▓▒░░▒▓█▓▒░  ░▒▓█▓▒░
 ╔══════════════════════════════════════════════╗
-║   BOOST TREASURY  ·  TRANSFER                ║
+║               REGISTER VAULT                 ║
 ╚══════════════════════════════════════════════╝
 BANNER
 
@@ -47,8 +51,8 @@ readonly TESTNET_PASSPHRASE="Test SDF Network ; September 2015"
 readonly TESTNET_XLM_SAC="CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
 
 readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-readonly WORKSPACE_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-readonly BOOST_TREASURY_KEY="boost-treasury"
+readonly WORKSPACE_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+readonly FEE_PROXY_KEY="fee-proxy"
 
 # --- Helpers ---
 
@@ -90,10 +94,11 @@ resolve_required() {
   fi
 }
 
-require_positive_i128() {
+require_u32() {
   local label="$1" value="$2"
-  [[ "$value" =~ ^[1-9][0-9]*$ ]] \
-    || die "$label must be a positive integer, got '$value'"
+  [[ "$value" =~ ^[0-9]+$ ]] || die "$label must be a non-negative integer, got '$value'"
+  # u32 max = 4_294_967_295
+  (( value <= 4294967295 )) || die "$label exceeds u32::MAX (4294967295)"
 }
 
 run_with_spinner() {
@@ -162,21 +167,21 @@ $balance_output"
   echo "  balance: $balance_xlm XLM ($balance_stroops stroops)"
 }
 
-load_boost_treasury_id() {
+load_fee_proxy_id() {
   command -v jq >/dev/null 2>&1 || die "jq is required (install: brew install jq)"
 
   local contracts_file="$WORKSPACE_ROOT/$NETWORK.contracts.json"
   if [[ -f "$contracts_file" ]]; then
-    BOOST_TREASURY_ID="$(jq -r --arg k "$BOOST_TREASURY_KEY" '.[$k] // empty' "$contracts_file")"
-    if [[ -n "$BOOST_TREASURY_ID" ]]; then
-      echo "✓ boost-treasury ($NETWORK): $BOOST_TREASURY_ID  (from $contracts_file)"
+    FEE_PROXY_ID="$(jq -r --arg k "$FEE_PROXY_KEY" '.[$k] // empty' "$contracts_file")"
+    if [[ -n "$FEE_PROXY_ID" ]]; then
+      echo "✓ fee-proxy ($NETWORK): $FEE_PROXY_ID  (from $contracts_file)"
       return
     fi
-    echo "⚠  '$BOOST_TREASURY_KEY' not found in $contracts_file"
+    echo "⚠  '$FEE_PROXY_KEY' not found in $contracts_file"
   else
     echo "⚠  $contracts_file not found"
   fi
-  BOOST_TREASURY_ID=$(prompt_required "BoostTreasury contract id")
+  FEE_PROXY_ID=$(prompt_required "FeeProxy contract id")
 }
 
 # --- Collect args ---
@@ -196,40 +201,54 @@ case "$NETWORK" in
   *) die "unknown network: '$NETWORK' (expected 'testnet' or 'mainnet')" ;;
 esac
 
-SOURCE_ACCOUNT=$(resolve_required "Signer identity (must be BoostTreasury admin)" "${2-__UNSET__}")
+SOURCE_ACCOUNT=$(resolve_required "Signer identity (must be the vault's current Manager)" "${2-__UNSET__}")
 
 ensure_network
 ensure_signer
-load_boost_treasury_id
+load_fee_proxy_id
 echo
 
-VAULT=$(resolve_required  "Vault contract id"                  "${3-__UNSET__}")
-AMOUNT=$(resolve_required "Amount (positive i128 units)"       "${4-__UNSET__}")
-TO=$(resolve_required     "Destination address (recipient)"    "${5-__UNSET__}")
+VAULT=$(resolve_required            "Vault contract id"                                      "${3-__UNSET__}")
+CONFIG_ADMIN=$(resolve_with_default "Config admin (address that will control via the proxy)" "$SIGNER_PUBKEY" "${4-__UNSET__}")
+TARGET_APY_BPS=$(resolve_required   "Target APY (bps, u32)"                                  "${5-__UNSET__}")
+MIN_FEE_BPS=$(resolve_with_default  "Min fee (bps)"                                          "0"   "${6-__UNSET__}")
+MAX_FEE_BPS=$(resolve_required      "Max fee (bps, ≤ 10000)"                                 "${7-__UNSET__}")
 
-require_positive_i128 "amount" "$AMOUNT"
+require_u32 "target_apy_bps" "$TARGET_APY_BPS"
+require_u32 "min_fee_bps"    "$MIN_FEE_BPS"
+require_u32 "max_fee_bps"    "$MAX_FEE_BPS"
+(( MIN_FEE_BPS <= MAX_FEE_BPS )) || die "min_fee_bps ($MIN_FEE_BPS) must be ≤ max_fee_bps ($MAX_FEE_BPS)"
+(( MAX_FEE_BPS <= 10000 ))       || die "max_fee_bps ($MAX_FEE_BPS) must be ≤ 10000"
+
+# Struct args are passed as JSON to `stellar contract invoke`.
+CONFIG_JSON=$(printf '{"admin":"%s","target_apy_bps":%s,"max_fee_bps":%s,"min_fee_bps":%s}' \
+  "$CONFIG_ADMIN" "$TARGET_APY_BPS" "$MAX_FEE_BPS" "$MIN_FEE_BPS")
 
 echo
 echo "──────────────────────────────────────"
 echo " network:         $NETWORK"
 echo " signer:          $SOURCE_ACCOUNT ($SIGNER_PUBKEY)"
-echo " boost-treasury:  $BOOST_TREASURY_ID"
+echo " fee-proxy:       $FEE_PROXY_ID"
 echo " vault:           $VAULT"
-echo " amount:          $AMOUNT"
-echo " to:              $TO"
+echo " config.admin:    $CONFIG_ADMIN"
+echo " target_apy_bps:  $TARGET_APY_BPS"
+echo " min_fee_bps:     $MIN_FEE_BPS"
+echo " max_fee_bps:     $MAX_FEE_BPS"
+echo "──────────────────────────────────────"
+echo " config json:     $CONFIG_JSON"
 echo "──────────────────────────────────────"
 
-read -rp "Transfer now? [y/N] " confirm
+read -rp "Register now? [y/N] " confirm
 [[ "$confirm" =~ ^[yY]$ ]] || { echo "aborted"; exit 0; }
 
 stellar contract invoke \
-  --id "$BOOST_TREASURY_ID" \
+  --id "$FEE_PROXY_ID" \
   --source-account "$SOURCE_ACCOUNT" \
   --network "$NETWORK" \
-  -- transfer \
+  -- register_vault \
+  --admin "$SIGNER_PUBKEY" \
   --vault "$VAULT" \
-  --amount "$AMOUNT" \
-  --to "$TO"
+  --config "$CONFIG_JSON"
 
 echo
-echo "✅ Transferred $AMOUNT from campaign $VAULT to $TO"
+echo "✅ Vault $VAULT registered with FeeProxy $FEE_PROXY_ID"
