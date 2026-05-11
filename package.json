@@ -7,7 +7,8 @@
   "scripts": {
     "deposit": "tsx src/vault/deposit.ts",
     "withdraw": "tsx src/vault/withdraw.ts",
-    "cron": "tsx src/vault/cron.ts"
+    "cron": "tsx src/vault/cron.ts",
+    "backtest:regime": "tsx src/backtest/regime-threshold.ts"
   },
   "dependencies": {
     "@stellar/stellar-sdk": "^15.1.0",
