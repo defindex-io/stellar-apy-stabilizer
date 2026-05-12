@@ -151,7 +151,7 @@ fn test_unregister_vault() {
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #110)")]
+#[should_panic(expected = "Error(Contract, #3010)")]
 fn test_register_vault_already_registered() {
     let env = Env::default();
     env.mock_all_auths();
@@ -169,7 +169,7 @@ fn test_register_vault_already_registered() {
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #121)")]
+#[should_panic(expected = "Error(Contract, #3021)")]
 fn test_register_vault_invalid_fee_bounds() {
     let env = Env::default();
     env.mock_all_auths();
@@ -206,7 +206,7 @@ fn test_lock_fees_by_vault_admin() {
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #120)")]
+#[should_panic(expected = "Error(Contract, #3020)")]
 fn test_lock_fees_out_of_bounds() {
     let env = Env::default();
     env.mock_all_auths();
@@ -277,7 +277,7 @@ fn test_set_fee_bounds() {
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #121)")]
+#[should_panic(expected = "Error(Contract, #3021)")]
 fn test_set_fee_bounds_invalid() {
     let env = Env::default();
     env.mock_all_auths();
@@ -357,7 +357,7 @@ fn test_propose_and_accept_admin() {
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #123)")]
+#[should_panic(expected = "Error(Contract, #3023)")]
 fn test_accept_admin_without_pending() {
     let env = Env::default();
     env.mock_all_auths();
@@ -367,7 +367,7 @@ fn test_accept_admin_without_pending() {
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #100)")]
+#[should_panic(expected = "Error(Contract, #3000)")]
 fn test_accept_admin_wrong_caller() {
     let env = Env::default();
     env.mock_all_auths();
@@ -470,7 +470,7 @@ fn test_pause_unpause_vault_strategy() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[should_panic(expected = "Error(Contract, #100)")]
+#[should_panic(expected = "Error(Contract, #3000)")]
 fn test_lock_fees_unauthorized_caller() {
     let env = Env::default();
     env.mock_all_auths();
@@ -481,7 +481,7 @@ fn test_lock_fees_unauthorized_caller() {
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #111)")]
+#[should_panic(expected = "Error(Contract, #3011)")]
 fn test_unregister_nonexistent_vault() {
     let env = Env::default();
     env.mock_all_auths();
@@ -525,7 +525,7 @@ fn test_vault_isolation() {
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #111)")]
+#[should_panic(expected = "Error(Contract, #3011)")]
 fn test_lock_fees_nonexistent_vault() {
     let env = Env::default();
     env.mock_all_auths();

@@ -162,7 +162,7 @@ fn test_propose_and_accept_admin() {
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #101)")]
+#[should_panic(expected = "Error(Contract, #4001)")]
 fn test_accept_admin_without_pending() {
     let env = Env::default();
     env.mock_all_auths();
@@ -172,7 +172,7 @@ fn test_accept_admin_without_pending() {
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #100)")]
+#[should_panic(expected = "Error(Contract, #4000)")]
 fn test_accept_admin_wrong_caller() {
     let env = Env::default();
     env.mock_all_auths();
@@ -239,7 +239,7 @@ fn test_register_campaign() {
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #110)")]
+#[should_panic(expected = "Error(Contract, #4010)")]
 fn test_register_campaign_already_registered() {
     let env = Env::default();
     env.mock_all_auths();
@@ -248,7 +248,7 @@ fn test_register_campaign_already_registered() {
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #120)")]
+#[should_panic(expected = "Error(Contract, #4020)")]
 fn test_register_campaign_multi_asset_rejected() {
     let env = Env::default();
     env.mock_all_auths();
@@ -279,7 +279,7 @@ fn test_update_campaign_toggle_active() {
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #111)")]
+#[should_panic(expected = "Error(Contract, #4011)")]
 fn test_update_campaign_not_registered() {
     let env = Env::default();
     env.mock_all_auths();
@@ -293,7 +293,7 @@ fn test_update_campaign_not_registered() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[should_panic(expected = "Error(Contract, #111)")]
+#[should_panic(expected = "Error(Contract, #4011)")]
 fn test_unregister_campaign() {
     let env = Env::default();
     env.mock_all_auths();
@@ -305,7 +305,7 @@ fn test_unregister_campaign() {
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #111)")]
+#[should_panic(expected = "Error(Contract, #4011)")]
 fn test_unregister_campaign_not_registered() {
     let env = Env::default();
     env.mock_all_auths();
@@ -339,7 +339,7 @@ fn test_deposit_updates_accounting_and_transfers_tokens() {
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #111)")]
+#[should_panic(expected = "Error(Contract, #4011)")]
 fn test_deposit_campaign_not_registered() {
     let env = Env::default();
     env.mock_all_auths();
@@ -350,7 +350,7 @@ fn test_deposit_campaign_not_registered() {
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #112)")]
+#[should_panic(expected = "Error(Contract, #4012)")]
 fn test_deposit_campaign_inactive() {
     let env = Env::default();
     env.mock_all_auths();
@@ -363,7 +363,7 @@ fn test_deposit_campaign_inactive() {
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #130)")]
+#[should_panic(expected = "Error(Contract, #4030)")]
 fn test_deposit_zero_amount() {
     let env = Env::default();
     env.mock_all_auths();
@@ -435,7 +435,7 @@ fn test_boost_updates_last_boosted_at() {
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #131)")]
+#[should_panic(expected = "Error(Contract, #4031)")]
 fn test_boost_exceeds_available() {
     let env = Env::default();
     env.mock_all_auths();
@@ -444,7 +444,7 @@ fn test_boost_exceeds_available() {
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #112)")]
+#[should_panic(expected = "Error(Contract, #4012)")]
 fn test_boost_campaign_inactive() {
     let env = Env::default();
     env.mock_all_auths();
@@ -454,7 +454,7 @@ fn test_boost_campaign_inactive() {
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #130)")]
+#[should_panic(expected = "Error(Contract, #4030)")]
 fn test_boost_zero_amount() {
     let env = Env::default();
     env.mock_all_auths();
@@ -463,7 +463,7 @@ fn test_boost_zero_amount() {
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #111)")]
+#[should_panic(expected = "Error(Contract, #4011)")]
 fn test_boost_campaign_not_registered() {
     let env = Env::default();
     env.mock_all_auths();
@@ -494,7 +494,7 @@ fn test_transfer_updates_accounting_and_sends_tokens() {
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #131)")]
+#[should_panic(expected = "Error(Contract, #4031)")]
 fn test_transfer_exceeds_available() {
     let env = Env::default();
     env.mock_all_auths();
@@ -504,7 +504,7 @@ fn test_transfer_exceeds_available() {
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #130)")]
+#[should_panic(expected = "Error(Contract, #4030)")]
 fn test_transfer_zero_amount() {
     let env = Env::default();
     env.mock_all_auths();
@@ -530,7 +530,7 @@ fn test_transfer_allows_unregister_after_draining() {
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #113)")]
+#[should_panic(expected = "Error(Contract, #4013)")]
 fn test_unregister_campaign_with_balance_rejected() {
     let env = Env::default();
     env.mock_all_auths();
