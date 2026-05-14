@@ -7,6 +7,15 @@ export const VAULTS: readonly string[] = [
   "CD3HR7WNGPDUGK5ITNMZSRM36O2IFJF3N4RFHOITP4DCXMVGHMANN3XR",
 ] as const;
 
+// Human-readable labels for the vaults above. Used by the APY-history poller
+// so historical rows are interpretable without joining to another table.
+export const VAULT_NAMES: Record<string, string> = {
+  CAEPJIHET2TBI2VCLJZI6QHMN366KUGNK4AOKE3YY7AOKMU4KX4RDRGB: "DeFindex-Vault-targetAPY",
+  CB5YXWIDBQAOTTPEQE3SRNUFM2PTOXFHKGUWCBJJSF2GPW37DN725FDA: "DeFindex-Vault-controlAPY",
+  CD3HR7WNGPDUGK5ITNMZSRM36O2IFJF3N4RFHOITP4DCXMVGHMANN3XR: "DeFindex-Vault-variableAPY",
+  CD7T34Y5SZ6MBEZDMXDIQWQ6JICO7TYH7E6DKZJ7BHXOMR2EQ65WYSZG: "DeFindex-Vault-boostAPY",
+};
+
 // 0.1 USDC at 7 decimals = 1_000_000 stroops.
 export const DEPOSIT_AMOUNT_STROOPS = 1_000_000n;
 
@@ -28,3 +37,9 @@ export const POLL_TIMEOUT_MS = 60_000;
 
 // 4 hours between cron ticks.
 export const CRON_INTERVAL_MS = 4 * 60 * 60 * 1000;
+
+// 1 hour between APY-history poll ticks.
+export const APY_POLL_INTERVAL_MS = 60 * 60 * 1000;
+
+// Network passed to the partner /vault/:id/apy endpoint.
+export const APY_POLL_NETWORK = "mainnet";

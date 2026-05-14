@@ -8,14 +8,17 @@
     "deposit": "tsx src/vault/deposit.ts",
     "withdraw": "tsx src/vault/withdraw.ts",
     "cron": "tsx src/vault/cron.ts",
+    "apy-poller": "tsx src/poller/apy-history.ts",
     "backtest:regime": "tsx src/backtest/regime-threshold.ts"
   },
   "dependencies": {
     "@stellar/stellar-sdk": "^15.1.0",
-    "dotenv": "^17.4.2"
+    "dotenv": "^17.4.2",
+    "pg": "^8.20.0"
   },
   "devDependencies": {
     "@types/node": "^25.6.2",
+    "@types/pg": "^8.20.0",
     "tsx": "^4.21.0",
     "typescript": "^6.0.3"
   }
