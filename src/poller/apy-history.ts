@@ -27,9 +27,12 @@ interface ApyResponse {
 
 async function fetchVaultApy(vaultAddress: string): Promise<number> {
   const baseUrl = process.env.DEFINDEX_API_URL as string;
+  const apiKey = process.env.DEFINDEX_API_KEY as string;
   const url = `${baseUrl}/vault/${vaultAddress}/apy?network=${APY_POLL_NETWORK}`;
 
-  const res = await fetch(url);
+  const res = await fetch(url, {
+    headers: { Authorization: `Bearer ${apiKey}` },
+  });
   if (!res.ok) {
     throw new Error(`HTTP ${res.status} from ${url}`);
   }
