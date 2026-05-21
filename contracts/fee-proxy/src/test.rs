@@ -535,6 +535,54 @@ fn test_lock_fees_nonexistent_vault() {
 }
 
 // ---------------------------------------------------------------------------
+// H1: register_vault enforces admin == config.admin
+// ---------------------------------------------------------------------------
+
+#[test]
+#[should_panic(expected = "Error(Contract, #3024)")]
+fn test_register_vault_admin_mismatch_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, _fee_manager) = setup(&env);
+
+    let signer = Address::generate(&env);
+    let other = Address::generate(&env);
+    let vault_id = env.register(MockVault, (&client.address,));
+    let config = VaultConfig {
+        admin: other,
+        target_apy_bps: 500,
+        min_fee_bps: 10,
+        max_fee_bps: 200,
+    };
+    // signer != config.admin → AdminMismatch (#3024)
+    client.register_vault(&signer, &vault_id, &config);
+}
+
+// ---------------------------------------------------------------------------
+// L2: release_fees rejects non-positive amount
+// ---------------------------------------------------------------------------
+
+#[test]
+#[should_panic(expected = "Error(Contract, #3030)")]
+fn test_release_fees_zero_amount_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _, _, vault_id) = setup_with_vault(&env);
+    let strategy = Address::generate(&env);
+    client.release_fees(&vault_id, &strategy, &0i128);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #3030)")]
+fn test_release_fees_negative_amount_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _, _, vault_id) = setup_with_vault(&env);
+    let strategy = Address::generate(&env);
+    client.release_fees(&vault_id, &strategy, &-1i128);
+}
+
+// ---------------------------------------------------------------------------
 // Integration tests using real vault WASM
 // ---------------------------------------------------------------------------
 

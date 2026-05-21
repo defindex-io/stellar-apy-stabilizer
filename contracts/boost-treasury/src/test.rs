@@ -218,7 +218,7 @@ fn setup_with_campaign(
     let (client, admin, manager) = setup(env);
     let (token_admin, token_client, asset) = create_test_token(env);
     let vault = register_mock_vault(env, &asset);
-    client.register_campaign(&vault);
+    client.register_campaign(&vault, &asset);
     (client, admin, manager, vault, asset, token_admin, token_client)
 }
 
@@ -243,8 +243,8 @@ fn test_register_campaign() {
 fn test_register_campaign_already_registered() {
     let env = Env::default();
     env.mock_all_auths();
-    let (client, _, _, vault, _, _, _) = setup_with_campaign(&env);
-    client.register_campaign(&vault); // second call panics
+    let (client, _, _, vault, asset, _, _) = setup_with_campaign(&env);
+    client.register_campaign(&vault, &asset); // second call panics on #4010
 }
 
 #[test]
@@ -256,7 +256,20 @@ fn test_register_campaign_multi_asset_rejected() {
     let asset_a = Address::generate(&env);
     let asset_b = Address::generate(&env);
     let multi_vault = env.register(MultiAssetMockVault, (&asset_a, &asset_b));
-    client.register_campaign(&multi_vault);
+    client.register_campaign(&multi_vault, &asset_a);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #4021)")]
+fn test_register_campaign_asset_mismatch_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, _manager) = setup(&env);
+    let (_, _, real_asset) = create_test_token(&env);
+    let (_, _, wrong_asset) = create_test_token(&env);
+    let vault = register_mock_vault(&env, &real_asset);
+    // Admin passes wrong_asset; vault reports real_asset → AssetMismatch (#4021)
+    client.register_campaign(&vault, &wrong_asset);
 }
 
 // ---------------------------------------------------------------------------
@@ -589,7 +602,7 @@ fn test_register_campaign_requires_admin_auth() {
     let (_, _, asset) = create_test_token(&env);
     let vault = register_mock_vault(&env, &asset);
 
-    client.mock_auths(&[]).register_campaign(&vault);
+    client.mock_auths(&[]).register_campaign(&vault, &asset);
 }
 
 // ---------------------------------------------------------------------------
@@ -633,6 +646,112 @@ fn test_accounting_invariant_across_operations() {
 }
 
 // ---------------------------------------------------------------------------
+// rescue_orphan tests (M3)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_rescue_orphan_recovers_untracked_balance() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _, _vault, asset, token_admin, token_client) =
+        setup_with_campaign(&env);
+
+    // Send tokens directly to the treasury (NOT via deposit) — these are
+    // untracked by any campaign.
+    let stray = 5_000i128;
+    token_admin.mint(&client.address, &stray);
+    assert_eq!(token_client.balance(&client.address), stray);
+
+    let recipient = Address::generate(&env);
+    client.rescue_orphan(&asset, &recipient, &stray);
+
+    assert_eq!(token_client.balance(&recipient), stray);
+    assert_eq!(token_client.balance(&client.address), 0);
+}
+
+#[test]
+fn test_rescue_orphan_only_orphan_portion() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _, vault, asset, token_admin, token_client) =
+        setup_with_campaign(&env);
+
+    // 1000 via deposit (tracked) + 500 direct send (orphan)
+    let depositor = Address::generate(&env);
+    token_admin.mint(&depositor, &1_000);
+    client.deposit(&depositor, &vault, &1_000);
+    token_admin.mint(&client.address, &500);
+    assert_eq!(token_client.balance(&client.address), 1_500);
+
+    let recipient = Address::generate(&env);
+    client.rescue_orphan(&asset, &recipient, &500);
+
+    // Tracked balance preserved
+    assert_eq!(token_client.balance(&client.address), 1_000);
+    assert_eq!(token_client.balance(&recipient), 500);
+    let campaign = client.get_campaign(&vault);
+    assert_eq!(campaign.available(), 1_000);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #4032)")]
+fn test_rescue_orphan_cannot_drain_tracked_funds() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _, vault, asset, token_admin, _token_client) =
+        setup_with_campaign(&env);
+
+    // All 1000 is tracked — no orphan
+    let depositor = Address::generate(&env);
+    token_admin.mint(&depositor, &1_000);
+    client.deposit(&depositor, &vault, &1_000);
+
+    let recipient = Address::generate(&env);
+    // Try to rescue 100; orphan is 0 → InsufficientOrphanBalance (#4032)
+    client.rescue_orphan(&asset, &recipient, &100);
+    let _ = vault; // silence unused warning
+}
+
+#[test]
+fn test_rescue_orphan_unknown_token_full_balance() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _, _vault, _campaign_asset, _, _) =
+        setup_with_campaign(&env);
+
+    // Send a different token to the treasury — no campaign tracks it, so the
+    // entire balance is orphan.
+    let (alien_admin, alien_client, alien_asset) = create_test_token(&env);
+    alien_admin.mint(&client.address, &777);
+
+    let recipient = Address::generate(&env);
+    client.rescue_orphan(&alien_asset, &recipient, &777);
+
+    assert_eq!(alien_client.balance(&recipient), 777);
+    assert_eq!(alien_client.balance(&client.address), 0);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #4030)")]
+fn test_rescue_orphan_rejects_zero_amount() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _, _, asset, _, _) = setup_with_campaign(&env);
+    let recipient = Address::generate(&env);
+    client.rescue_orphan(&asset, &recipient, &0i128);
+}
+
+#[test]
+#[should_panic]
+fn test_rescue_orphan_requires_admin() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _, _, asset, _, _) = setup_with_campaign(&env);
+    let recipient = Address::generate(&env);
+    client.mock_auths(&[]).rescue_orphan(&asset, &recipient, &1);
+}
+
+// ---------------------------------------------------------------------------
 // Integration tests with real DeFindex vault WASM
 // ---------------------------------------------------------------------------
 
@@ -667,7 +786,7 @@ mod integration_tests {
         let (client, _admin, _manager) = setup(&env);
 
         let (vault, asset, _, _) = setup_real_vault(&env);
-        client.register_campaign(&vault);
+        client.register_campaign(&vault, &asset);
 
         let campaign = client.get_campaign(&vault);
         assert_eq!(campaign.asset, asset);
@@ -680,11 +799,11 @@ mod integration_tests {
         env.mock_all_auths();
         let (client, _, _) = setup(&env);
 
-        let (vault, _asset, token_admin, token_client) =
+        let (vault, asset, token_admin, token_client) =
             setup_real_vault(&env);
 
         // Register
-        client.register_campaign(&vault);
+        client.register_campaign(&vault, &asset);
 
         // Deposit
         let depositor = Address::generate(&env);

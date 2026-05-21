@@ -15,7 +15,10 @@ pub enum ContractError {
     CampaignInactive = 4012,
     CampaignHasBalance = 4013,
     MultiAssetVaultNotSupported = 4020,
+    AssetMismatch = 4021,
     InvalidAmount = 4030,
     InsufficientBudget = 4031,
+    InsufficientOrphanBalance = 4032,
     Overflow = 4040,
+    AccountingCorrupted = 4041,
 }

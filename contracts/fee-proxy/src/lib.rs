@@ -139,11 +139,13 @@ impl FeeProxy {
 
     // --- Registration ---
 
-    /// Registers a vault with the proxy. The `admin` must be the vault's current
-    /// Manager (enforced by the vault's `set_manager` call). `config.admin` is the
-    /// address that will control this vault through the proxy going forward - it
-    /// does NOT need to match `admin`, allowing partners to delegate to a different
-    /// operational address.
+    /// Registers a vault with the proxy. `admin` is the signer and must be the
+    /// vault's current Manager (the vault's `set_manager` call below independently
+    /// enforces this). `admin` must equal `config.admin`; the proxy refuses to
+    /// register a vault where the signing partner and the future proxy-side
+    /// controller are different addresses, to prevent a partner from accidentally
+    /// (or maliciously) delegating proxy-side admin rights to a wrong address that
+    /// never authenticated.
     pub fn register_vault(
         env: Env,
         admin: Address,
@@ -153,14 +155,23 @@ impl FeeProxy {
         extend_instance_ttl(&env);
         admin.require_auth();
 
+        if admin != config.admin {
+            panic_with_error!(&env, ContractError::AdminMismatch);
+        }
+
         if storage::has_vault_config(&env, &vault) {
             panic_with_error!(&env, ContractError::VaultAlreadyRegistered);
         }
 
         validate_fee_bounds(&env, config.min_fee_bps, config.max_fee_bps);
 
-        let proxy = env.current_contract_address();
+        // Write proxy-side config first so the cross-contract call below is the
+        // last externally-observable step; if `set_manager` ever fails the whole
+        // tx reverts atomically (Soroban), but ordering keeps invariants clear
+        // against future edits to the function.
+        storage::set_vault_config(&env, &vault, &config);
 
+        let proxy = env.current_contract_address();
         // Hand manager role to the proxy so the proxy can call vault functions.
         call_vault(
             &env,
@@ -168,8 +179,6 @@ impl FeeProxy {
             "set_manager",
             vec![&env, proxy.into_val(&env)],
         );
-
-        storage::set_vault_config(&env, &vault, &config);
 
         events::VaultRegistered {
             vault,
@@ -251,6 +260,10 @@ impl FeeProxy {
     pub fn release_fees(env: Env, vault: Address, strategy: Address, amount: i128) {
         extend_instance_ttl(&env);
         require_vault_admin(&env, &vault);
+
+        if amount <= 0 {
+            panic_with_error!(&env, ContractError::InvalidAmount);
+        }
 
         call_vault(
             &env,
