@@ -24,9 +24,13 @@ import type {
 } from "./types";
 import { log, sleep } from "../helpers/log";
 
-const rpcServer = new rpc.Server(process.env.SOROBAN_RPC as string);
+let rpcServer: rpc.Server | null = null;
 
 export function getRpcServer(): rpc.Server {
+  if (rpcServer) return rpcServer;
+  const url = process.env.SOROBAN_RPC;
+  if (!url) throw new Error("SOROBAN_RPC is not set");
+  rpcServer = new rpc.Server(url);
   return rpcServer;
 }
 
@@ -74,7 +78,7 @@ export async function simulateContractCall(
     .addOperation(operation)
     .build();
 
-  const sim = await rpcServer.simulateTransaction(tx);
+  const sim = await getRpcServer().simulateTransaction(tx);
   if (rpc.Api.isSimulationError(sim)) {
     throw new Error(`simulate ${contractId}.${method} failed: ${sim.error}`);
   }
@@ -126,7 +130,7 @@ export async function signAndSubmit(
   keypair: Keypair,
 ): Promise<ContractTxResult> {
   try {
-    const sourceAccount = await rpcServer.getAccount(keypair.publicKey());
+    const sourceAccount = await getRpcServer().getAccount(keypair.publicKey());
 
     const contract = new Contract(contractAddress);
     const operation = contract.call(method, ...params);
@@ -139,7 +143,7 @@ export async function signAndSubmit(
       .setTimeout(TX_TIMEOUT_SECONDS)
       .build();
 
-    const sim = await rpcServer.simulateTransaction(tx);
+    const sim = await getRpcServer().simulateTransaction(tx);
     if (rpc.Api.isSimulationError(sim)) {
       throw new Error(`simulate ${contractAddress}.${method} failed: ${sim.error}`);
     }
@@ -147,7 +151,7 @@ export async function signAndSubmit(
     const prepped = rpc.assembleTransaction(tx, sim).build();
     prepped.sign(keypair);
 
-    const sent = await rpcServer.sendTransaction(prepped);
+    const sent = await getRpcServer().sendTransaction(prepped);
     if (sent.status === "ERROR") {
       throw new Error(`sendTransaction failed: ${JSON.stringify(sent.errorResult)}`);
     }
@@ -167,7 +171,7 @@ export async function signAndSubmit(
 async function pollTransaction(hash: string): Promise<rpc.Api.GetTransactionResponse> {
   const deadline = Date.now() + POLL_TIMEOUT_MS;
   while (Date.now() < deadline) {
-    const tx = await rpcServer.getTransaction(hash);
+    const tx = await getRpcServer().getTransaction(hash);
     if (tx.status !== "NOT_FOUND") return tx;
     await sleep(POLL_INTERVAL_MS);
   }
