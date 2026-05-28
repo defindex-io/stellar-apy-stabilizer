@@ -24,13 +24,13 @@
  * baseline, the divergence signal isn't doing much filtering work.
  */
 
-import * as fs from 'node:fs';
-import * as path from 'node:path';
+import * as fs from "node:fs";
+import * as path from "node:path";
 
 const LONG_DAYS = 7;
 const SHORT_DAYS = 1;
 const LOOKAHEAD_DAYS = 3;
-const THRESHOLDS = [0.10, 0.15, 0.20, 0.25, 0.30, 0.35, 0.40, 0.50];
+const THRESHOLDS = [0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.5];
 
 // Skip points where |longApy| is below this. Tiny denominators amplify noise
 // in the divergence ratio.
@@ -68,21 +68,21 @@ interface Scorecard {
 }
 
 function parseCsv(filePath: string): PpsRow[] {
-  const text = fs.readFileSync(filePath, 'utf-8').trim();
-  const lines = text.split('\n');
-  const header = lines[0].split(',').map((h) => h.trim());
+  const text = fs.readFileSync(filePath, "utf-8").trim();
+  const lines = text.split("\n");
+  const header = lines[0].split(",").map((h) => h.trim());
   const col = (name: string): number => {
     const i = header.indexOf(name);
-    if (i === -1) throw new Error(`Missing column "${name}" in CSV header: ${header.join(', ')}`);
+    if (i === -1) throw new Error(`Missing column "${name}" in CSV header: ${header.join(", ")}`);
     return i;
   };
-  const lIdx = col('ledger');
-  const tIdx = col('timestamp');
-  const pIdx = col('pps');
+  const lIdx = col("ledger");
+  const tIdx = col("timestamp");
+  const pIdx = col("pps");
 
   const rows: PpsRow[] = [];
   for (let i = 1; i < lines.length; i++) {
-    const cols = lines[i].split(',');
+    const cols = lines[i].split(",");
     if (cols.length <= Math.max(lIdx, tIdx, pIdx)) continue;
     const pps = parseFloat(cols[pIdx]);
     const ledger = parseInt(cols[lIdx], 10);
@@ -200,25 +200,27 @@ function scoreThreshold(computed: ComputedRow[], threshold: number): Scorecard {
 }
 
 function formatPercent(x: number): string {
-  return (x * 100).toFixed(1).padStart(5) + '%';
+  return (x * 100).toFixed(1).padStart(5) + "%";
 }
 
 function printDistribution(computed: ComputedRow[]): void {
   const sorted = [...computed].map((r) => r.divergence).sort((a, b) => a - b);
   const at = (q: number): number => sorted[Math.floor(sorted.length * q)];
-  console.log('Divergence distribution across all eligible points:');
-  console.log(`  p50: ${at(0.5).toFixed(3)}  p75: ${at(0.75).toFixed(3)}  p90: ${at(0.9).toFixed(3)}  p95: ${at(0.95).toFixed(3)}  p99: ${at(0.99).toFixed(3)}`);
-  console.log('');
+  console.log("Divergence distribution across all eligible points:");
+  console.log(
+    `  p50: ${at(0.5).toFixed(3)}  p75: ${at(0.75).toFixed(3)}  p90: ${at(0.9).toFixed(3)}  p95: ${at(0.95).toFixed(3)}  p99: ${at(0.99).toFixed(3)}`,
+  );
+  console.log("");
 }
 
 function main(): void {
-  const argPath = process.argv[2] ?? './meru-pps-historical.csv';
+  const argPath = process.argv[2] ?? "./pps-historical.csv";
   const csvPath = path.resolve(argPath);
   console.log(`Loading ${csvPath}`);
 
   const rows = parseCsv(csvPath);
   if (rows.length === 0) {
-    console.error('No rows parsed.');
+    console.error("No rows parsed.");
     process.exit(1);
   }
   console.log(
@@ -226,9 +228,11 @@ function main(): void {
   );
 
   const computed = computeRows(rows);
-  console.log(`Eligible points (both windows valid, |long| ≥ ${MIN_LONG_APY_ABS}): ${computed.length}\n`);
+  console.log(
+    `Eligible points (both windows valid, |long| ≥ ${MIN_LONG_APY_ABS}): ${computed.length}\n`,
+  );
   if (computed.length === 0) {
-    console.error('No points met the window requirements. Need ≥ LONG_DAYS of history.');
+    console.error("No points met the window requirements. Need ≥ LONG_DAYS of history.");
     process.exit(1);
   }
 
@@ -237,12 +241,8 @@ function main(): void {
   console.log(
     `Lookahead: ${LOOKAHEAD_DAYS}d  ·  no-change ε: ${NO_CHANGE_EPSILON}  ·  long=${LONG_DAYS}d short=${SHORT_DAYS}d\n`,
   );
-  console.log(
-    'threshold  fires   correct  reverted  no-change   accuracy   baseline   lift',
-  );
-  console.log(
-    '─────────  ─────   ───────  ────────  ─────────   ────────   ────────   ────',
-  );
+  console.log("threshold  fires   correct  reverted  no-change   accuracy   baseline   lift");
+  console.log("─────────  ─────   ───────  ────────  ─────────   ────────   ────────   ────");
   for (const t of THRESHOLDS) {
     const s = scoreThreshold(computed, t);
     const lift = s.accuracy - s.baselineAccuracy;
