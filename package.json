@@ -9,7 +9,9 @@
     "withdraw": "tsx src/vault/withdraw.ts",
     "cron": "tsx src/vault/cron.ts",
     "apy-poller": "tsx src/poller/apy-history.ts",
-    "backtest:regime": "tsx src/backtest/regime-threshold.ts"
+    "backtest:regime": "tsx src/backtest/regime-threshold.ts",
+    "stabilizer": "tsx src/stabilizer/cron.ts",
+    "test:stabilizer": "tsx --test src/stabilizer/__tests__/fee-stabilizer.test.ts"
   },
   "dependencies": {
     "@stellar/stellar-sdk": "^15.1.0",
