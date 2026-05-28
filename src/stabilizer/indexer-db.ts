@@ -4,6 +4,7 @@ import type {
   SupportedNetwork,
   VaultStateSnapshot,
 } from "./types";
+import { log } from "../helpers/log";
 
 let pool: Pool | null = null;
 
@@ -11,7 +12,25 @@ function getIndexerPool(): Pool {
   if (pool) return pool;
   const conn = process.env.INDEXER_DATABASE_URL;
   if (!conn) throw new Error("INDEXER_DATABASE_URL is not set");
-  pool = new Pool({ connectionString: conn });
+
+  // Managed Postgres providers (Cloud SQL, Supabase, Railway, etc.) front
+  // self-signed or chained certs that don't validate against Node's default
+  // root store. `rejectUnauthorized: false` keeps the connection encrypted
+  // while skipping endpoint-identity verification — same as the API.
+  // Set INDEXER_DATABASE_SSL=false to opt out (e.g., local dev Postgres).
+  const sslDisabled = process.env.INDEXER_DATABASE_SSL === "false";
+
+  pool = new Pool({
+    connectionString: conn,
+    ssl: sslDisabled ? false : { rejectUnauthorized: false },
+  });
+
+  // Without this listener an idle-client error (DB restart, network blip)
+  // becomes an uncaught exception and kills the bot mid-cycle.
+  pool.on("error", (err) => {
+    log(`indexer pg pool idle-client error: ${err.message}`);
+  });
+
   return pool;
 }
 
