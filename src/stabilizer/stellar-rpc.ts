@@ -163,8 +163,9 @@ export async function signAndSubmit(
     }
     return { txHash: sent.hash, success: true };
   } catch (err) {
-    log(`signAndSubmit error: ${(err as Error).message}`);
-    return { txHash: "", success: false };
+    const message = err instanceof Error ? err.message : String(err);
+    log(`signAndSubmit error: ${message}`);
+    return { txHash: "", success: false, errorMessage: message };
   }
 }
 

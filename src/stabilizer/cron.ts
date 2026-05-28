@@ -25,7 +25,7 @@ function preflight(): void {
 }
 
 async function main(): Promise<void> {
-  console.log(BANNER);
+  log(BANNER);
   preflight();
   log(`stabilizer started · interval ${STABILIZER_INTERVAL_MS}ms`);
 
@@ -33,7 +33,7 @@ async function main(): Promise<void> {
     try {
       await runStabilizationCycle("mainnet");
     } catch (err) {
-      log(`tick crashed: ${(err as Error).message}`);
+      log(`tick crashed: ${err instanceof Error ? err.message : String(err)}`);
     }
     log(`sleeping ${STABILIZER_INTERVAL_MS}ms until next tick`);
     await sleep(STABILIZER_INTERVAL_MS);

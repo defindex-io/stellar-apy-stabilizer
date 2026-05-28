@@ -97,6 +97,7 @@ export interface StabilizationCycleResult {
 export interface ContractTxResult {
   txHash: string;
   success: boolean;
+  errorMessage?: string;
 }
 
 export interface Invocation {

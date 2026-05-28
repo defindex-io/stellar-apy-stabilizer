@@ -5,7 +5,7 @@ import type { SupportedNetwork } from "./types";
 // Testnet placeholder kept to mirror the API; never read in this iteration.
 export const FEE_PROXY_ADDRESS: Record<SupportedNetwork, string> = {
   mainnet:
-    process.env.FEE_PROXY_ADDRESS_MAINNET ||
+    process.env.FEE_PROXY_ADDRESS_MAINNET ??
     "CDEFLWJMPR6DDNOEGP6KNPSPRWKPUG3DJLIOQZIS6EHIGNK7EGTQSA7R",
   testnet: "C_TESTNET_TBD_AFTER_DEPLOYMENT",
 };

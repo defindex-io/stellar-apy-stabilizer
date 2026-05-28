@@ -19,7 +19,7 @@ import type {
 } from "./types";
 
 // ===========================================================================
-// PURE MATH (kept from Task 4)
+// PURE MATH — fee controller calculations
 // ===========================================================================
 
 export function calculateRequiredFee(strategyApy: number, targetApyBps: number): number {
@@ -197,7 +197,11 @@ async function submit(
   }
   const tx = await lockFees(network, vault.vaultId, appliedFeeBps);
   if (!tx.success) {
-    return { ...base, action: "error", error: "lock_fees transaction failed" };
+    return {
+      ...base,
+      action: "error",
+      error: tx.errorMessage ?? "lock_fees transaction failed",
+    };
   }
   return { ...base, action: "adjusted", txHash: tx.txHash };
 }

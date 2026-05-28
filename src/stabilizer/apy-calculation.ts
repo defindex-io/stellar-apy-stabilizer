@@ -49,7 +49,7 @@ export async function calculateLiveGrossApy(
   const live = await simulateMultipleInvocations(network, vaultAddress, invocations);
   const liveValues = scValToNative(live.result!.retval) as unknown[];
   const liveFunds = liveValues[0] as Array<{ total_amount: bigint | string }>;
-  const liveSupply: string = (liveValues[1] as bigint | string).toString() ?? "0";
+  const liveSupply: string = (liveValues[1] ?? 0n).toString();
   const reportResult = liveValues[2] as StrategyReport[];
 
   const liveTotalAmount = BigInt(liveFunds?.[0]?.total_amount ?? 0);
@@ -89,7 +89,9 @@ export async function calculateLiveGrossApy(
   const historicalLockedFees = BigInt(
     await getHistoricalLockedFees(network, vaultAddress, startSnapshot.ledger),
   );
-  const startTotalAmount = BigInt(startSnapshot.totalManagedFundsBefore[0].total_amount);
+  const startTotalAmount = BigInt(
+    startSnapshot.totalManagedFundsBefore[0]?.total_amount ?? "0",
+  );
   const startGrossTotal = startTotalAmount + historicalLockedFees;
   const startSupplyBigInt = BigInt(startSnapshot.totalSupplyBefore);
 
