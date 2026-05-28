@@ -7,6 +7,8 @@ Soroban contracts that let a DeFindex vault partner opt into a managed fee polic
 
 The two contracts are independent on-chain singletons. An off-chain fee service orchestrates them together, and an indexer consumes their events.
 
+The off-chain fee service (the **APY Stabilizer bot**) ships in this repo too — a long-running PM2 process under `src/stabilizer/` that runs the fee-control loop against the deployed FeeProxy. See [`docs/STABILIZER.md`](docs/STABILIZER.md) for setup, configuration, the dry-run → live workflow, and the operational runbook.
+
 ## Repo Layout
 
 ```
@@ -15,8 +17,16 @@ contracts/
   boost-treasury/     BoostTreasury contract
 external-contracts/
   defindex_vault.optimized.wasm   Real vault WASM for integration tests
+src/
+  stabilizer/         APY Stabilizer bot — hourly fee-control loop (TypeScript / PM2)
+  poller/             APY-history poller (TypeScript / PM2)
+  vault/              Deposit/withdraw cron used in backtesting (TypeScript / PM2)
 docs/
+  STABILIZER.md                   APY Stabilizer bot setup + operations
   APY_STABILIZER_PROPOSAL.md      Design proposal
+  internal-audit.md               Contract security audit
+  stride-threat-model.md          STRIDE threat model
+.env.example          Environment template for the off-chain bot
 ```
 
 Cargo workspace at the root pins `soroban-sdk = "25.3.1"` and release flags tuned for WASM size.
