@@ -7,10 +7,13 @@
 #
 # Usage:
 #   Interactive:  ./register_campaign.sh
-#   Positional:   ./register_campaign.sh <network> <source_account> <vault>
+#   Positional:   ./register_campaign.sh <network> <source_account> <vault> <asset>
+#
+# Pass "-" for <asset> to default it to the vault's self-reported asset.
 #
 # The signer MUST be the BoostTreasury admin.
-# The vault must expose `get_assets()` and return exactly one asset.
+# The vault must expose `get_assets()` and return exactly one asset; the
+# contract rejects the call if <asset> doesn't match what the vault reports.
 
 set -euo pipefail
 
@@ -172,6 +175,34 @@ load_boost_treasury_id() {
   BOOST_TREASURY_ID=$(prompt_required "BoostTreasury contract id")
 }
 
+# Queries the vault's get_assets() (simulation only) and sets
+# VAULT_ASSET_DEFAULT to the single asset's address, or empty if the read
+# fails or the vault is multi-asset (the contract would reject those anyway).
+fetch_vault_asset_default() {
+  VAULT_ASSET_DEFAULT=""
+  local assets_json asset_count
+  if ! assets_json="$(run_with_spinner "fetching vault asset..." \
+    stellar contract invoke \
+      --id "$VAULT" \
+      --source-account "$SOURCE_ACCOUNT" \
+      --network "$NETWORK" \
+      --send no \
+      -- get_assets)"; then
+    echo "⚠  could not read vault get_assets(); enter the asset manually"
+    return
+  fi
+
+  asset_count="$(jq -r 'length' <<<"$assets_json" 2>/dev/null || echo 0)"
+  if [[ "$asset_count" != "1" ]]; then
+    echo "⚠  vault reports $asset_count assets — register_campaign only supports single-asset vaults"
+    return
+  fi
+
+  VAULT_ASSET_DEFAULT="$(jq -r '.[0].address // empty' <<<"$assets_json")"
+  [[ -n "$VAULT_ASSET_DEFAULT" ]] \
+    && echo "✓ vault asset: $VAULT_ASSET_DEFAULT  (from get_assets)"
+}
+
 # --- Collect args ---
 
 NETWORK=$(resolve_with_default "Network (testnet/mainnet)" "mainnet" "${1-__UNSET__}")
@@ -198,12 +229,20 @@ echo
 
 VAULT=$(resolve_required "Vault contract id" "${3-__UNSET__}")
 
+fetch_vault_asset_default
+if [[ -n "$VAULT_ASSET_DEFAULT" ]]; then
+  ASSET=$(resolve_with_default "Asset contract id" "$VAULT_ASSET_DEFAULT" "${4-__UNSET__}")
+else
+  ASSET=$(resolve_required "Asset contract id" "${4-__UNSET__}")
+fi
+
 echo
 echo "──────────────────────────────────────"
 echo " network:         $NETWORK"
 echo " signer:          $SOURCE_ACCOUNT ($SIGNER_PUBKEY)"
 echo " boost-treasury:  $BOOST_TREASURY_ID"
 echo " vault:           $VAULT"
+echo " asset:           $ASSET"
 echo "──────────────────────────────────────"
 
 read -rp "Register campaign now? [y/N] " confirm
@@ -214,7 +253,8 @@ stellar contract invoke \
   --source-account "$SOURCE_ACCOUNT" \
   --network "$NETWORK" \
   -- register_campaign \
-  --vault "$VAULT"
+  --vault "$VAULT" \
+  --asset "$ASSET"
 
 echo
 echo "✅ Campaign registered for vault $VAULT"
