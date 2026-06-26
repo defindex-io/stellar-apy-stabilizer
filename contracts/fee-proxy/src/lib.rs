@@ -264,8 +264,10 @@ impl FeeProxy {
             &env,
             &vault,
             "release_fees",
-            vec![&env, strategy.into_val(&env), amount.into_val(&env)],
+            vec![&env, strategy.clone().into_val(&env), amount.into_val(&env)],
         );
+
+        events::FeesReleased { vault, strategy, amount }.publish(&env);
     }
 
     // --- Config updates ---
