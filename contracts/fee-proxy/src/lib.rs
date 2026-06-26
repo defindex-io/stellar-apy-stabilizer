@@ -139,25 +139,20 @@ impl FeeProxy {
 
     // --- Registration ---
 
-    /// Registers a vault with the proxy. `admin` is the signer and must be the
-    /// vault's current Manager (the vault's `set_manager` call below independently
-    /// enforces this). `admin` must equal `config.admin`; the proxy refuses to
-    /// register a vault where the signing partner and the future proxy-side
-    /// controller are different addresses, to prevent a partner from accidentally
-    /// (or maliciously) delegating proxy-side admin rights to a wrong address that
-    /// never authenticated.
+    /// Registers a vault with the proxy. The signer is `config.admin` — the
+    /// address that controls the vault through the proxy going forward — and must
+    /// also be the vault's current Manager (the vault's `set_manager` call below
+    /// independently enforces this). Requiring the signer to be `config.admin`
+    /// prevents a partner from accidentally (or maliciously, via a compromised
+    /// UI) delegating proxy-side admin rights to an address that never
+    /// authenticated.
     pub fn register_vault(
         env: Env,
-        admin: Address,
         vault: Address,
         config: VaultConfig,
     ) {
         extend_instance_ttl(&env);
-        admin.require_auth();
-
-        if admin != config.admin {
-            panic_with_error!(&env, ContractError::AdminMismatch);
-        }
+        config.admin.require_auth();
 
         if storage::has_vault_config(&env, &vault) {
             panic_with_error!(&env, ContractError::VaultAlreadyRegistered);
