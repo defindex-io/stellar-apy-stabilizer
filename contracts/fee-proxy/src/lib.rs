@@ -17,11 +17,7 @@ fn require_fee_manager_or_vault_admin(env: &Env, caller: &Address, vault: &Addre
         .unwrap_or_else(|| panic_with_error!(env, ContractError::VaultNotRegistered));
 
     let fee_manager = storage::get_fee_manager(env);
-    if *caller == fee_manager {
-        caller.require_auth();
-        return config;
-    }
-    if *caller == config.admin {
+    if *caller == fee_manager || *caller == config.admin {
         caller.require_auth();
         return config;
     }
