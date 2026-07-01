@@ -188,7 +188,7 @@ impl FeeProxy {
             &env,
             &vault,
             "set_manager",
-            vec![&env, config.admin.clone().into_val(&env)],
+            vec![&env, config.admin.into_val(&env)],
         );
 
         storage::remove_vault_config(&env, &vault);
@@ -260,7 +260,7 @@ impl FeeProxy {
             &env,
             &vault,
             "release_fees",
-            vec![&env, strategy.clone().into_val(&env), amount.into_val(&env)],
+            vec![&env, strategy.into_val(&env), amount.into_val(&env)],
         );
 
         events::FeesReleased { vault, strategy, amount }.publish(&env);
@@ -321,7 +321,7 @@ impl FeeProxy {
     pub fn set_vault_manager(env: Env, vault: Address, new_manager: Address) {
         extend_instance_ttl(&env);
         let config = require_vault_admin(&env, &vault);
-        call_vault(&env, &vault, "set_manager", vec![&env, new_manager.clone().into_val(&env)]);
+        call_vault(&env, &vault, "set_manager", vec![&env, new_manager.into_val(&env)]);
         if new_manager != env.current_contract_address() {
             storage::remove_vault_config(&env, &vault);
 
