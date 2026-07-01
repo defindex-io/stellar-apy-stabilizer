@@ -163,12 +163,7 @@ impl BoostTreasury {
             last_boosted_at: 0,
         };
         storage::set_campaign(&env, &vault, &campaign);
-
-        // Track the vault in the campaign list so `rescue_orphan` can enumerate
-        // tracked balances by asset.
-        let mut list = storage::get_campaign_list(&env);
-        list.push_back(vault.clone());
-        storage::set_campaign_list(&env, &list);
+        // No `Tracked(asset)` update: a fresh campaign has `available() == 0`.
 
         events::CampaignRegistered {
             vault,
@@ -202,17 +197,8 @@ impl BoostTreasury {
         }
 
         storage::remove_campaign(&env, &vault);
-
-        // Drop the vault from the campaign list so `rescue_orphan` does not
-        // attempt to read its now-removed Campaign entry.
-        let list = storage::get_campaign_list(&env);
-        let mut new_list = Vec::new(&env);
-        for v in list.iter() {
-            if v != vault {
-                new_list.push_back(v);
-            }
-        }
-        storage::set_campaign_list(&env, &new_list);
+        // No `Tracked(asset)` update: unregister requires `available() == 0`,
+        // so this campaign contributes nothing to the per-token total.
 
         events::CampaignUnregistered { vault }.publish(&env);
     }
@@ -237,6 +223,12 @@ impl BoostTreasury {
             .checked_add(amount)
             .unwrap_or_else(|| panic_with_error!(&env, ContractError::Overflow));
         storage::set_campaign(&env, &vault, &campaign);
+
+        // A deposit raises this campaign's `available()`, so bump the per-token total.
+        let tracked = storage::get_tracked_balance(&env, &campaign.asset)
+            .checked_add(amount)
+            .unwrap_or_else(|| panic_with_error!(&env, ContractError::Overflow));
+        storage::set_tracked_balance(&env, &campaign.asset, tracked);
 
         events::Deposited {
             vault,
@@ -272,12 +264,19 @@ impl BoostTreasury {
         campaign.last_boosted_at = env.ledger().timestamp();
         storage::set_campaign(&env, &vault, &campaign);
 
+        // A boost spends this campaign's `available()`, so lower the per-token total.
+        let tracked = storage::get_tracked_balance(&env, &campaign.asset)
+            .checked_sub(amount)
+            .unwrap_or_else(|| panic_with_error!(&env, ContractError::AccountingCorrupted));
+        storage::set_tracked_balance(&env, &campaign.asset, tracked);
+
         events::Boosted { vault, amount }.publish(&env);
     }
 
     /// Sends `amount` tokens from a campaign's tracked budget to `to`. Admin
-    /// only. Used for refunds (returning unspent budget to depositors) or for
-    /// reallocating between vaults.
+    /// only. Used for refunds (returning unspent budget to depositors) or to
+    /// move budget out of the treasury. To move budget between campaigns
+    /// without an external round-trip, use `reallocate` instead.
     ///
     /// ⚠️ This function grants the admin role full power to drain any
     /// campaign's `available()` budget to any address. Depositors should be
@@ -291,7 +290,7 @@ impl BoostTreasury {
         require_admin(&env);
         require_positive_amount(&env, amount);
 
-        let campaign = storage::get_campaign(&env, &vault)
+        let mut campaign = storage::get_campaign(&env, &vault)
             .unwrap_or_else(|| panic_with_error!(&env, ContractError::CampaignNotRegistered));
 
         if amount > campaign.available() {
@@ -304,17 +303,72 @@ impl BoostTreasury {
             &amount,
         );
 
-        let new_total_withdrawn = campaign
+        // Mutate the Campaign in place (B06) rather than reconstructing it.
+        campaign.total_withdrawn = campaign
             .total_withdrawn
             .checked_add(amount)
             .unwrap_or_else(|| panic_with_error!(&env, ContractError::Overflow));
-        let updated = Campaign {
-            total_withdrawn: new_total_withdrawn,
-            ..campaign
-        };
-        storage::set_campaign(&env, &vault, &updated);
+        storage::set_campaign(&env, &vault, &campaign);
+
+        // A transfer spends this campaign's `available()`, so lower the per-token total.
+        let tracked = storage::get_tracked_balance(&env, &campaign.asset)
+            .checked_sub(amount)
+            .unwrap_or_else(|| panic_with_error!(&env, ContractError::AccountingCorrupted));
+        storage::set_tracked_balance(&env, &campaign.asset, tracked);
 
         events::Transferred { vault, to, amount }.publish(&env);
+    }
+
+    /// Moves `amount` of tracked budget from one campaign to another that uses
+    /// the same asset, without any token leaving the treasury. Admin only.
+    ///
+    /// This lets the operator rebalance budget between vaults directly, instead
+    /// of `transfer`-ing to an interim wallet and re-`deposit`-ing. Both
+    /// campaigns must already be registered and share the same `asset`. The
+    /// treasury's real token balance is unchanged, so the per-token tracked
+    /// total is preserved: source `available()` falls by `amount` and the
+    /// destination's rises by the same `amount`.
+    pub fn reallocate(env: Env, from_vault: Address, to_vault: Address, amount: i128) {
+        extend_instance_ttl(&env);
+        require_admin(&env);
+        require_positive_amount(&env, amount);
+
+        if from_vault == to_vault {
+            panic_with_error!(&env, ContractError::SameVault);
+        }
+
+        let mut from = storage::get_campaign(&env, &from_vault)
+            .unwrap_or_else(|| panic_with_error!(&env, ContractError::CampaignNotRegistered));
+        let mut to = storage::get_campaign(&env, &to_vault)
+            .unwrap_or_else(|| panic_with_error!(&env, ContractError::CampaignNotRegistered));
+
+        if from.asset != to.asset {
+            panic_with_error!(&env, ContractError::AssetMismatch);
+        }
+        if amount > from.available() {
+            panic_with_error!(&env, ContractError::InsufficientBudget);
+        }
+
+        from.total_withdrawn = from
+            .total_withdrawn
+            .checked_add(amount)
+            .unwrap_or_else(|| panic_with_error!(&env, ContractError::Overflow));
+        to.total_deposited = to
+            .total_deposited
+            .checked_add(amount)
+            .unwrap_or_else(|| panic_with_error!(&env, ContractError::Overflow));
+
+        storage::set_campaign(&env, &from_vault, &from);
+        storage::set_campaign(&env, &to_vault, &to);
+        // `Tracked(asset)` is unchanged: -amount on the source, +amount on the
+        // destination, and no token leaves the treasury.
+
+        events::Reallocated {
+            from_vault,
+            to_vault,
+            amount,
+        }
+        .publish(&env);
     }
 
     /// Sweeps tokens out of the treasury that aren't accounted for in any
@@ -334,19 +388,9 @@ impl BoostTreasury {
         let balance = token::Client::new(&env, &token)
             .balance(&env.current_contract_address());
 
-        let list = storage::get_campaign_list(&env);
-        let mut tracked: i128 = 0;
-        for vault in list.iter() {
-            if let Some(campaign) = storage::get_campaign(&env, &vault) {
-                if campaign.asset == token {
-                    tracked = tracked
-                        .checked_add(campaign.available())
-                        .unwrap_or_else(|| {
-                            panic_with_error!(&env, ContractError::Overflow)
-                        });
-                }
-            }
-        }
+        // Sum of every campaign's `available()` for this token, maintained
+        // incrementally on deposit / boost / transfer — O(1), no per-campaign scan.
+        let tracked = storage::get_tracked_balance(&env, &token);
 
         let orphan = balance
             .checked_sub(tracked)

@@ -752,6 +752,131 @@ fn test_rescue_orphan_requires_admin() {
 }
 
 // ---------------------------------------------------------------------------
+// reallocate tests
+// ---------------------------------------------------------------------------
+
+/// Registers two campaigns backed by the SAME asset, funds the first with
+/// `funding`, and returns (client, vault_a, vault_b, token_client).
+fn setup_two_campaigns_same_asset(
+    env: &Env,
+    funding: i128,
+) -> (
+    BoostTreasuryClient<'_>,
+    Address,
+    Address,
+    token::TokenClient<'_>,
+) {
+    let (client, _admin, _manager, vault_a, asset, token_admin, token_client) =
+        setup_with_campaign(env);
+    let vault_b = register_mock_vault(env, &asset);
+    client.register_campaign(&vault_b, &asset);
+    if funding > 0 {
+        let depositor = Address::generate(env);
+        token_admin.mint(&depositor, &funding);
+        client.deposit(&depositor, &vault_a, &funding);
+    }
+    (client, vault_a, vault_b, token_client)
+}
+
+#[test]
+fn test_reallocate_moves_budget_without_moving_tokens() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, vault_a, vault_b, token_client) =
+        setup_two_campaigns_same_asset(&env, 1_000);
+
+    let before = token_client.balance(&client.address);
+    client.reallocate(&vault_a, &vault_b, &600);
+
+    let ca = client.get_campaign(&vault_a);
+    let cb = client.get_campaign(&vault_b);
+    assert_eq!(ca.total_withdrawn, 600);
+    assert_eq!(ca.available(), 400);
+    assert_eq!(cb.total_deposited, 600);
+    assert_eq!(cb.available(), 600);
+
+    // No token left the treasury.
+    assert_eq!(token_client.balance(&client.address), before);
+}
+
+#[test]
+fn test_reallocate_preserves_tracked_total() {
+    // A reallocation leaves the per-token tracked total unchanged, so
+    // rescue_orphan still refuses to touch campaign-attributed funds.
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, vault_a, vault_b, _token_client) =
+        setup_two_campaigns_same_asset(&env, 1_000);
+    let asset = client.get_campaign(&vault_a).asset;
+
+    client.reallocate(&vault_a, &vault_b, &400);
+
+    // The full 1000 is still tracked across the two campaigns → orphan is 0.
+    let recipient = Address::generate(&env);
+    assert!(client.try_rescue_orphan(&asset, &recipient, &1).is_err());
+    let _ = vault_b;
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #4022)")]
+fn test_reallocate_same_vault_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, vault_a, _vault_b, _t) = setup_two_campaigns_same_asset(&env, 1_000);
+    client.reallocate(&vault_a, &vault_a, &100);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #4021)")]
+fn test_reallocate_asset_mismatch_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, _manager, vault_a, _asset_a, _ta, _tc) = setup_with_campaign(&env);
+    let (_, _, asset_b) = create_test_token(&env);
+    let vault_b = register_mock_vault(&env, &asset_b);
+    client.register_campaign(&vault_b, &asset_b);
+    // vault_a uses asset_a, vault_b uses asset_b → AssetMismatch (#4021)
+    client.reallocate(&vault_a, &vault_b, &100);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #4031)")]
+fn test_reallocate_insufficient_budget_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, vault_a, vault_b, _t) = setup_two_campaigns_same_asset(&env, 100);
+    client.reallocate(&vault_a, &vault_b, &200);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #4030)")]
+fn test_reallocate_zero_amount_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, vault_a, vault_b, _t) = setup_two_campaigns_same_asset(&env, 100);
+    client.reallocate(&vault_a, &vault_b, &0);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #4011)")]
+fn test_reallocate_unregistered_destination_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _a, _m, vault_a, _asset, _ta, _tc) = setup_with_campaign(&env);
+    let random_vault = Address::generate(&env);
+    client.reallocate(&vault_a, &random_vault, &1);
+}
+
+#[test]
+#[should_panic]
+fn test_reallocate_requires_admin() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, vault_a, vault_b, _t) = setup_two_campaigns_same_asset(&env, 1_000);
+    client.mock_auths(&[]).reallocate(&vault_a, &vault_b, &100);
+}
+
+// ---------------------------------------------------------------------------
 // Integration tests with real DeFindex vault WASM
 // ---------------------------------------------------------------------------
 

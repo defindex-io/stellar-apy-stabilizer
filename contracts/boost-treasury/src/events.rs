@@ -53,6 +53,16 @@ pub struct Transferred {
 
 #[contractevent]
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Reallocated {
+    #[topic]
+    pub from_vault: Address,
+    #[topic]
+    pub to_vault: Address,
+    pub amount: i128,
+}
+
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ManagerUpdated {
     pub old: Address,
     pub new_addr: Address,
