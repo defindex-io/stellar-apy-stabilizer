@@ -876,6 +876,42 @@ fn test_reallocate_requires_admin() {
     client.mock_auths(&[]).reallocate(&vault_a, &vault_b, &100);
 }
 
+#[test]
+fn test_tracked_stays_correct_across_reallocate_boost_transfer() {
+    // Drives the per-token counter through a mixed sequence that includes a
+    // reallocation, then proves Tracked(token) still equals the real sum of
+    // campaign available() by checking that exactly the untracked surplus — no
+    // more, no less — is rescuable.
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, vault_a, vault_b, token_client) =
+        setup_two_campaigns_same_asset(&env, 1_000); // A funded 1000, B empty
+    let asset = client.get_campaign(&vault_a).asset;
+    let recipient = Address::generate(&env);
+
+    client.reallocate(&vault_a, &vault_b, &400); // A avail 600, B avail 400 (no tokens move)
+    client.boost(&vault_b, &150); // B avail 250; 150 leaves the treasury
+    client.transfer(&vault_a, &100, &recipient); // A avail 500; 100 leaves the treasury
+
+    // Solvency: treasury balance == sum of campaign available().
+    let ca = client.get_campaign(&vault_a);
+    let cb = client.get_campaign(&vault_b);
+    assert_eq!(ca.available(), 500);
+    assert_eq!(cb.available(), 250);
+    assert_eq!(token_client.balance(&client.address), 750);
+    assert_eq!(
+        ca.available() + cb.available(),
+        token_client.balance(&client.address)
+    );
+
+    // The counter equals that sum: a stray deposit is fully but only exactly
+    // rescuable (91 fails, 90 succeeds, tracked budget untouched afterwards).
+    token::StellarAssetClient::new(&env, &asset).mint(&client.address, &90);
+    assert!(client.try_rescue_orphan(&asset, &recipient, &91).is_err());
+    client.rescue_orphan(&asset, &recipient, &90);
+    assert_eq!(token_client.balance(&client.address), 750);
+}
+
 // ---------------------------------------------------------------------------
 // Integration tests with real DeFindex vault WASM
 // ---------------------------------------------------------------------------
