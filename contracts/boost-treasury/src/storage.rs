@@ -13,10 +13,12 @@ pub enum DataKey {
     PendAdmin,
     Manager,
     Campaign(Address),
-    /// Persistent list of every registered vault. Maintained by
-    /// `register_campaign` / `unregister_campaign`. Read by `rescue_orphan` to
-    /// enumerate tracked-balance per token.
-    CampList,
+    /// Per-token running total of every campaign's `available()` budget for that
+    /// token. Incremented on `deposit`, decremented on `boost` / `transfer`, so
+    /// `rescue_orphan` can compute the orphan balance in O(1) instead of
+    /// scanning every campaign. Keyed by token address; the variant name is
+    /// ≤ 9 chars so its symbol stays `SymbolSmall` (see B04).
+    Tracked(Address),
 }
 
 #[contracttype]
@@ -142,30 +144,30 @@ pub fn has_campaign(env: &Env, vault: &Address) -> bool {
         .has(&DataKey::Campaign(vault.clone()))
 }
 
-// --- CampList ---
+// --- Tracked (per-token available-budget total) ---
 
-pub fn extend_campaign_list_ttl(env: &Env) {
+pub fn extend_tracked_ttl(env: &Env, token: &Address) {
     env.storage().persistent().extend_ttl(
-        &DataKey::CampList,
+        &DataKey::Tracked(token.clone()),
         PERSISTENT_LIFETIME_THRESHOLD,
         PERSISTENT_BUMP_AMOUNT,
     );
 }
 
-pub fn get_campaign_list(env: &Env) -> Vec<Address> {
-    let list: Option<Vec<Address>> = env
+pub fn get_tracked_balance(env: &Env, token: &Address) -> i128 {
+    let tracked: Option<i128> = env
         .storage()
         .persistent()
-        .get(&DataKey::CampList);
-    if list.is_some() {
-        extend_campaign_list_ttl(env);
+        .get(&DataKey::Tracked(token.clone()));
+    if tracked.is_some() {
+        extend_tracked_ttl(env, token);
     }
-    list.unwrap_or_else(|| Vec::new(env))
+    tracked.unwrap_or(0)
 }
 
-pub fn set_campaign_list(env: &Env, list: &Vec<Address>) {
+pub fn set_tracked_balance(env: &Env, token: &Address, amount: i128) {
     env.storage()
         .persistent()
-        .set(&DataKey::CampList, list);
-    extend_campaign_list_ttl(env);
+        .set(&DataKey::Tracked(token.clone()), &amount);
+    extend_tracked_ttl(env, token);
 }

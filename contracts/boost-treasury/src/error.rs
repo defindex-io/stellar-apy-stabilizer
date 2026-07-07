@@ -16,6 +16,7 @@ pub enum ContractError {
     CampaignHasBalance = 4013,
     MultiAssetVaultNotSupported = 4020,
     AssetMismatch = 4021,
+    SameVault = 4022,
     InvalidAmount = 4030,
     InsufficientBudget = 4031,
     InsufficientOrphanBalance = 4032,

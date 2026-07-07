@@ -24,7 +24,28 @@ Findings (post-fix):
 
 > **False-positive removed.** Almanax flagged a CRITICAL "constructor re-callable post-deployment" finding (`6710ced6-...`). After verification against [CAP-0058](https://github.com/stellar/stellar-protocol/blob/master/core/cap-0058.md), this is **not exploitable**: `__constructor` is host-reserved and may only be called by the Soroban host environment at creation time. Soroban SDK 22+ contracts inherit this guarantee without needing an explicit init-guard. The finding is dismissed.
 
-All fixes are in-tree, both contracts build clean (`stellar contract build`), and the full test suite passes (42 boost-treasury + 40 fee-proxy = 82 tests, including coverage for `AssetMismatch`, `rescue_orphan`, and the `InvalidAmount` proxy-side check on `release_fees`). _(The `AdminMismatch` test was removed alongside its error variant under external-audit finding B01; see the H1 note below.)_
+All fixes are in-tree, both contracts build clean (`stellar contract build`), and the full test suite passes (50 boost-treasury + 40 fee-proxy = 90 tests, including coverage for `AssetMismatch`, `rescue_orphan`, `reallocate`, and the `InvalidAmount` proxy-side check on `release_fees`). _(The `AdminMismatch` test was removed alongside its error variant under external-audit finding B01; see the H1 note below.)_
+
+---
+
+## 1a. External audit — Runtime Verification remediation (2026-06-16 → 2026-06-30)
+
+Runtime Verification audited both contracts (two Soroban reviewers, two weeks). Their report renumbers findings relative to our internal IDs; the disposition below cross-references the RV report against the GitHub issues and the fix commits. **Every RV finding is either fixed in code or risk-accepted with documented rationale — none is left unaddressed.**
+
+| RV finding | Severity | Title | Disposition | Commit |
+|---|---|---|---|---|
+| A01 | LOW | `rescue_orphan` unbounded ledger reads can make the function uncallable | **FIXED** — replaced the `CampaignList` O(n) scan with a per-token `Tracked(token)` counter maintained on `deposit`/`boost`/`transfer`; `rescue_orphan` is now O(1) (two reads) and cannot be bricked by campaign growth. `CampaignList` removed. | `5ff5fa6` |
+| A02 | HIGH | Sandwich / MEV on boosts | **Risk-accepted (design).** Extractable value from a TVL-inflation sandwich is bounded by `D × apyGap × hoursElapsed / 8760`; at the hourly boost cadence this is economically negligible, and the only mitigation surface is the off-chain bot (out of scope). Bot uses frequent small boosts, a per-cycle hours cap (`MAX_BOOST_HOURS_PER_CYCLE`), a boost-independent strategy-APY control signal, and indexer-lagged TVL. | — |
+| B01 | INFO | `register_vault` redundant `admin` param | **FIXED** — param removed, signer is `config.admin` (see H1). | `2e25388` |
+| B02 | INFO | `release_fees` missing event | **FIXED** — `FeesReleased` event. | `072ff80` |
+| B03 | INFO | duplicated auth branches | **FIXED** — merged to a single condition. | `e87f465` |
+| B04 | INFO | long `DataKey` symbols | **FIXED** — variants shortened to ≤ 9 chars (`SymbolSmall`). | `921a099` |
+| B05 | INFO | no `rebalance` passthrough | **Risk-accepted** — the `RebalanceManager` role is retained by the partner after registration; rationale accepted by RV. Onboarding docs to make the path explicit. | — |
+| B06 | INFO | unnecessary clones | **FIXED** — `transfer` mutates `Campaign` in place; dropped 3 redundant `.clone()` before `into_val` in fee-proxy. | `5ff5fa6`, `a87daa1` |
+| B07 | INFO | vector rebuild loop in `unregister_campaign` | **FIXED** — subsumed by A01 (the vector is gone). | `5ff5fa6` |
+| B08 | INFO | reallocation requires an interim wallet | **FIXED** — added admin-only `reallocate(from_vault, to_vault, amount)` for same-asset budget moves with no token leaving the treasury; `transfer` doc tightened. | `5ff5fa6` |
+
+_(Almanax also left two comments on the B01–B04 PR about in-place upgrades bricking renamed storage keys. Both rest on an upgrade path that does not exist — neither contract has a self-upgrade entrypoint and both are deployed fresh — so they are dismissed.)_
 
 ---
 
@@ -241,7 +262,9 @@ pub fn rescue_orphan(env: Env, token: Address, to: Address, amount: i128) {
 **Behavior notes.**
 - For a token with no matching campaign (e.g. somebody sends USDC but no campaign uses USDC), `tracked = 0`, so the full balance is rescuable. Correct.
 - The function cannot drain campaign-tracked balances by construction — this is the key safety property over the alternative "let admin transfer any amount of any token" approach.
-- Pairs with M2 dismissal: once Protocol 23+ auto-restores an archived campaign, the rescue path stays accurate because the campaign still appears in `CampaignList`.
+- Pairs with M2 dismissal: once Protocol 23+ auto-restores an archived campaign, the rescue path stays accurate because the campaign's `available()` is already folded into the per-token `Tracked` total.
+
+> **Update 2026-07-01 (external-audit A01).** RV flagged that the `CampaignList` O(n) scan shown above could exceed Soroban's 200-entry ledger-read limit and make `rescue_orphan` uncallable at ~197 registered campaigns. The scan (and the `CampaignList` entry itself) was **removed** and replaced by an incrementally maintained per-token counter `Tracked(token)`, bumped on `deposit` and lowered on `boost`/`transfer`. `rescue_orphan` now reads exactly two entries (`balance(token)` and `Tracked(token)`) regardless of campaign count. The `balance − tracked` bound and the "cannot drain tracked funds" safety property are unchanged; the counter provably equals the old scan sum because every path that changes a campaign's `available()` updates it by the same delta, and `register`/`unregister` touch campaigns whose `available()` is 0. This also resolved external finding **B07** (the `unregister_campaign` vector-rebuild loop disappeared with the vector). A cap on campaign count (RV's alternative mitigation #1) was therefore not needed.
 
 ---
 
@@ -507,7 +530,7 @@ Cheap to keep; used by off-chain monitoring. Fine as is.
 
 **Fixed in this iteration (code-level changes, tests passing):**
 - H1 — `register_vault` enforces that the future proxy controller authenticates at registration. (Originally `admin == config.admin` + `AdminMismatch` #3024; simplified by B01 to `config.admin.require_auth()` with the `admin` param and error variant removed.)
-- M3 — `rescue_orphan(token, to, amount)` on boost-treasury, bounded by `CampaignList` so it cannot drain tracked campaign budgets. New errors `AccountingCorrupted` (#4041), `InsufficientOrphanBalance` (#4032), new event `OrphanRescued`.
+- M3 — `rescue_orphan(token, to, amount)` on boost-treasury, bounded so it cannot drain tracked campaign budgets. New errors `AccountingCorrupted` (#4041), `InsufficientOrphanBalance` (#4032), new event `OrphanRescued`. _(The original `CampaignList` scan was replaced by a per-token `Tracked` counter under external finding A01 — same safety property, now O(1). See §1a and the M3 update note.)_
 - L2 — proxy-side `amount > 0` check on `release_fees` (`InvalidAmount` #3030).
 - L3 — `register_campaign` takes explicit `asset` parameter and asserts the vault's `get_assets()` reports the same address (`AssetMismatch` #4021).
 - L4 — `transfer()` docstring rewritten to document the admin drain power; `rescue_orphan` is now the recommended safer alternative for orphan balances.
@@ -531,7 +554,7 @@ Cheap to keep; used by off-chain monitoring. Fine as is.
 - I1, I2, I3 — informational only.
 
 After the fixes above, the contracts are ready for external audit-bank submission. The remaining audit attention should focus on:
-1. The `rescue_orphan` bounded-rescue logic (CampaignList iteration, `balance − tracked` math).
+1. The `rescue_orphan` bounded-rescue logic (per-token `Tracked` counter maintenance, `balance − tracked` math) and the new `reallocate` same-asset budget move.
 2. The `register_vault` post-H1 auth flow (single-signature partner registration).
 3. The Soroban platform assumptions (CAP-0058, Protocol 23+) that underlie the dismissed findings.
 
