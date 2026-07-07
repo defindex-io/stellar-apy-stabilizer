@@ -1,19 +1,27 @@
 #!/usr/bin/env bash
 #
-# Register a campaign on the deployed BoostTreasury contract.
+# Build an UNSIGNED deposit transaction for a BoostTreasury campaign and print
+# the base64 XDR, ready to be signed offline (e.g. by a multisig account).
+# Nothing is submitted to the network.
 #
 # Reads the boost-treasury address from <workspace_root>/<network>.contracts.json
 # (falls back to prompting if the file or key is missing).
 #
 # Usage:
-#   Interactive:  ./register_campaign.sh
-#   Positional:   ./register_campaign.sh <network> <source_account> <vault> <asset>
+#   Interactive:  ./deposit-xdr.sh
+#   Positional:   ./deposit-xdr.sh <network> <depositor_pubkey> <vault> <amount>
 #
-# Pass "-" for <asset> to default it to the vault's self-reported asset.
+# <depositor_pubkey> is a G... public key (no local identity / secret needed):
+# it becomes both the transaction source and the deposit `caller`, so the
+# envelope signatures satisfy the contract's `caller.require_auth()` — exactly
+# what a classic multisig account needs.
 #
-# The signer MUST be the BoostTreasury admin.
-# The vault must expose `get_assets()` and return exactly one asset; the
-# contract rejects the call if <asset> doesn't match what the vault reports.
+# <amount> is the token's raw stroops/units (positive i128). The depositor
+# needs a sufficient balance (and trustline) in the campaign's asset.
+#
+# The transaction is valid for 1 hour after this script runs, leaving time to
+# collect multisig signatures. The sequence number is captured at build time:
+# the depositor account must not submit any other transaction before this one.
 
 set -euo pipefail
 
@@ -34,7 +42,7 @@ cat <<'BANNER'
    ░▒▓█▓▒░   ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░      ░▒▓█▓▒░░▒▓█▓▒░      ░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░  ░▒▓█▓▒░
    ░▒▓█▓▒░   ░▒▓█▓▒░░▒▓█▓▒░▒▓████████▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓███████▓▒░ ░▒▓██████▓▒░░▒▓█▓▒░░▒▓█▓▒░  ░▒▓█▓▒░
 ╔══════════════════════════════════════════════╗
-║   BOOST TREASURY  ·  REGISTER CAMPAIGN       ║
+║   BOOST TREASURY  ·  DEPOSIT  ·  XDR ONLY    ║
 ╚══════════════════════════════════════════════╝
 BANNER
 
@@ -51,6 +59,9 @@ readonly TESTNET_XLM_SAC="CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCY
 readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly WORKSPACE_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 readonly BOOST_TREASURY_KEY="boost-treasury"
+
+# 1 hour to collect multisig signatures before the tx expires.
+readonly TX_VALID_SECONDS=3600
 
 # --- Helpers ---
 
@@ -92,6 +103,14 @@ resolve_required() {
   fi
 }
 
+require_positive_i128() {
+  local label="$1" value="$2"
+  # Positive integer, no leading zero. The contract rejects <= 0; i128 upper
+  # bound is left to the network to enforce.
+  [[ "$value" =~ ^[1-9][0-9]*$ ]] \
+    || die "$label must be a positive integer, got '$value'"
+}
+
 run_with_spinner() {
   local label="$1"; shift
   local tmp rc_file rc
@@ -127,34 +146,28 @@ ensure_network() {
   fi
 }
 
-ensure_signer() {
-  if ! stellar keys ls 2>/dev/null | grep -qw "$SOURCE_ACCOUNT"; then
-    die "identity '$SOURCE_ACCOUNT' not found. Create one first with:
-    stellar keys generate $SOURCE_ACCOUNT --network $NETWORK
-    stellar keys add $SOURCE_ACCOUNT --secret-key
-  Then fund the account with XLM before re-running this script."
-  fi
-
-  SIGNER_PUBKEY="$(stellar keys public-key "$SOURCE_ACCOUNT")"
-  echo "✓ identity '$SOURCE_ACCOUNT' → $SIGNER_PUBKEY"
+ensure_depositor() {
+  [[ "$DEPOSITOR" =~ ^G[A-Z2-7]{55}$ ]] \
+    || die "depositor must be a public key (G..., 56 chars), got '$DEPOSITOR'"
 
   local balance_output balance_stroops balance_xlm
   if ! balance_output="$(run_with_spinner "checking XLM balance..." \
     stellar contract invoke \
       --id "$XLM_SAC_ID" \
-      --source-account "$SOURCE_ACCOUNT" \
+      --source-account "$DEPOSITOR" \
       --network "$NETWORK" \
       --send no \
-      -- balance --id "$SIGNER_PUBKEY")"; then
-    die "failed to fetch XLM balance for $SIGNER_PUBKEY:
+      -- balance --id "$DEPOSITOR")"; then
+    die "failed to fetch XLM balance for $DEPOSITOR:
 $balance_output"
   fi
 
   balance_stroops="${balance_output//\"/}"
   [[ -n "$balance_stroops" && "$balance_stroops" != "0" ]] \
-    || die "signer has 0 XLM on $NETWORK. Fund $SIGNER_PUBKEY before retrying."
+    || die "depositor has 0 XLM on $NETWORK. Fund $DEPOSITOR before retrying."
 
   balance_xlm="$(awk -v s="$balance_stroops" 'BEGIN { printf "%.7f", s / 10000000 }')"
+  echo "✓ depositor $DEPOSITOR"
   echo "  balance: $balance_xlm XLM ($balance_stroops stroops)"
 }
 
@@ -175,34 +188,6 @@ load_boost_treasury_id() {
   BOOST_TREASURY_ID=$(prompt_required "BoostTreasury contract id")
 }
 
-# Queries the vault's get_assets() (simulation only) and sets
-# VAULT_ASSET_DEFAULT to the single asset's address, or empty if the read
-# fails or the vault is multi-asset (the contract would reject those anyway).
-fetch_vault_asset_default() {
-  VAULT_ASSET_DEFAULT=""
-  local assets_json asset_count
-  if ! assets_json="$(run_with_spinner "fetching vault asset..." \
-    stellar contract invoke \
-      --id "$VAULT" \
-      --source-account "$SOURCE_ACCOUNT" \
-      --network "$NETWORK" \
-      --send no \
-      -- get_assets)"; then
-    echo "⚠  could not read vault get_assets(); enter the asset manually"
-    return
-  fi
-
-  asset_count="$(jq -r 'length' <<<"$assets_json" 2>/dev/null || echo 0)"
-  if [[ "$asset_count" != "1" ]]; then
-    echo "⚠  vault reports $asset_count assets — register_campaign only supports single-asset vaults"
-    return
-  fi
-
-  VAULT_ASSET_DEFAULT="$(jq -r '.[0].address // empty' <<<"$assets_json")"
-  [[ -n "$VAULT_ASSET_DEFAULT" ]] \
-    && echo "✓ vault asset: $VAULT_ASSET_DEFAULT  (from get_assets)"
-}
-
 # --- Collect args ---
 
 NETWORK=$(resolve_with_default "Network (testnet/mainnet)" "mainnet" "${1-__UNSET__}")
@@ -220,41 +205,84 @@ case "$NETWORK" in
   *) die "unknown network: '$NETWORK' (expected 'testnet' or 'mainnet')" ;;
 esac
 
-SOURCE_ACCOUNT=$(resolve_required "Signer identity (must be BoostTreasury admin)" "${2-__UNSET__}")
+DEPOSITOR=$(resolve_required "Depositor public key (tx source, e.g. the multisig account)" "${2-__UNSET__}")
 
 ensure_network
-ensure_signer
+ensure_depositor
 load_boost_treasury_id
 echo
 
-VAULT=$(resolve_required "Vault contract id" "${3-__UNSET__}")
+VAULT=$(resolve_required  "Vault contract id"            "${3-__UNSET__}")
+AMOUNT=$(resolve_required "Amount (positive i128 units)" "${4-__UNSET__}")
 
-fetch_vault_asset_default
-if [[ -n "$VAULT_ASSET_DEFAULT" ]]; then
-  ASSET=$(resolve_with_default "Asset contract id" "$VAULT_ASSET_DEFAULT" "${4-__UNSET__}")
-else
-  ASSET=$(resolve_required "Asset contract id" "${4-__UNSET__}")
-fi
+require_positive_i128 "amount" "$AMOUNT"
 
 echo
 echo "──────────────────────────────────────"
 echo " network:         $NETWORK"
-echo " signer:          $SOURCE_ACCOUNT ($SIGNER_PUBKEY)"
+echo " depositor:       $DEPOSITOR"
 echo " boost-treasury:  $BOOST_TREASURY_ID"
 echo " vault:           $VAULT"
-echo " asset:           $ASSET"
+echo " amount:          $AMOUNT"
+echo " tx validity:     $TX_VALID_SECONDS s"
 echo "──────────────────────────────────────"
 
-read -rp "Register campaign now? [y/N] " confirm
+read -rp "Build unsigned XDR now? [y/N] " confirm
 [[ "$confirm" =~ ^[yY]$ ]] || { echo "aborted"; exit 0; }
 
-stellar contract invoke \
+# Build the invoke transaction without signing or sending. The depositor's
+# current sequence number is baked in here.
+BUILT_XDR="$(stellar contract invoke \
   --id "$BOOST_TREASURY_ID" \
-  --source-account "$SOURCE_ACCOUNT" \
+  --source-account "$DEPOSITOR" \
   --network "$NETWORK" \
-  -- register_campaign \
+  --build-only \
+  -- deposit \
+  --caller "$DEPOSITOR" \
   --vault "$VAULT" \
-  --asset "$ASSET"
+  --amount "$AMOUNT")"
+
+# Simulate to attach the Soroban footprint and resource fee. This also
+# verifies the deposit would succeed (active campaign, balance, trustline).
+if ! SIM_XDR="$(run_with_spinner "simulating transaction..." \
+  stellar tx simulate \
+    --source-account "$DEPOSITOR" \
+    --network "$NETWORK" \
+    "$BUILT_XDR")"; then
+  die "simulation failed — the deposit would not succeed as built:
+$SIM_XDR"
+fi
+
+# `contract invoke --build-only` sets no time bounds (valid forever); bound it
+# to now + TX_VALID_SECONDS so an unsubmitted envelope eventually dies.
+EXPIRES_AT=$(( $(date +%s) + TX_VALID_SECONDS ))
+UNSIGNED_XDR="$(printf '%s' "$SIM_XDR" \
+  | stellar tx decode \
+  | jq -c --argjson mt "$EXPIRES_AT" '.tx.tx.cond = {time: {min_time: 0, max_time: $mt}}' \
+  | stellar tx encode)"
+
+TX_HASH="$(stellar tx hash --network "$NETWORK" "$UNSIGNED_XDR")"
 
 echo
-echo "✅ Campaign registered for vault $VAULT"
+echo "✅ Unsigned deposit transaction built"
+echo
+echo " tx hash:     $TX_HASH"
+if EXPIRES_HUMAN="$(date -r "$EXPIRES_AT" 2>/dev/null || date -d "@$EXPIRES_AT" 2>/dev/null)"; then
+  echo " expires at:  $EXPIRES_HUMAN (unix $EXPIRES_AT)"
+else
+  echo " expires at:  unix $EXPIRES_AT"
+fi
+echo
+echo "──────────────── XDR (base64) ────────────────"
+echo "$UNSIGNED_XDR"
+echo "──────────────────────────────────────────────"
+echo
+echo "Next steps:"
+echo "  1. Collect signatures (each signer):"
+echo "       stellar tx sign --sign-with-key <key> --network $NETWORK <XDR>"
+echo "     or sign in Stellar Lab / your multisig coordinator."
+echo "  2. Submit the signed envelope within the validity window:"
+echo "       stellar tx send --network $NETWORK <SIGNED_XDR>"
+echo
+echo "⚠  Sequence number was captured at build time: $DEPOSITOR must not"
+echo "   submit any other transaction before this one, or it will fail."

@@ -10,13 +10,13 @@ const PERSISTENT_LIFETIME_THRESHOLD: u32 = PERSISTENT_BUMP_AMOUNT - 20 * DAY_IN_
 #[derive(Clone)]
 pub enum DataKey {
     Admin,
-    PendingAdmin,
+    PendAdmin,
     Manager,
     Campaign(Address),
     /// Persistent list of every registered vault. Maintained by
     /// `register_campaign` / `unregister_campaign`. Read by `rescue_orphan` to
     /// enumerate tracked-balance per token.
-    CampaignList,
+    CampList,
 }
 
 #[contracttype]
@@ -86,18 +86,18 @@ pub fn set_admin(env: &Env, admin: &Address) {
     env.storage().instance().set(&DataKey::Admin, admin);
 }
 
-// --- PendingAdmin ---
+// --- PendAdmin ---
 
 pub fn get_pending_admin(env: &Env) -> Option<Address> {
-    env.storage().instance().get(&DataKey::PendingAdmin)
+    env.storage().instance().get(&DataKey::PendAdmin)
 }
 
 pub fn set_pending_admin(env: &Env, pending: &Address) {
-    env.storage().instance().set(&DataKey::PendingAdmin, pending);
+    env.storage().instance().set(&DataKey::PendAdmin, pending);
 }
 
 pub fn remove_pending_admin(env: &Env) {
-    env.storage().instance().remove(&DataKey::PendingAdmin);
+    env.storage().instance().remove(&DataKey::PendAdmin);
 }
 
 // --- Manager ---
@@ -142,11 +142,11 @@ pub fn has_campaign(env: &Env, vault: &Address) -> bool {
         .has(&DataKey::Campaign(vault.clone()))
 }
 
-// --- CampaignList ---
+// --- CampList ---
 
 pub fn extend_campaign_list_ttl(env: &Env) {
     env.storage().persistent().extend_ttl(
-        &DataKey::CampaignList,
+        &DataKey::CampList,
         PERSISTENT_LIFETIME_THRESHOLD,
         PERSISTENT_BUMP_AMOUNT,
     );
@@ -156,7 +156,7 @@ pub fn get_campaign_list(env: &Env) -> Vec<Address> {
     let list: Option<Vec<Address>> = env
         .storage()
         .persistent()
-        .get(&DataKey::CampaignList);
+        .get(&DataKey::CampList);
     if list.is_some() {
         extend_campaign_list_ttl(env);
     }
@@ -166,6 +166,6 @@ pub fn get_campaign_list(env: &Env) -> Vec<Address> {
 pub fn set_campaign_list(env: &Env, list: &Vec<Address>) {
     env.storage()
         .persistent()
-        .set(&DataKey::CampaignList, list);
+        .set(&DataKey::CampList, list);
     extend_campaign_list_ttl(env);
 }

@@ -7,11 +7,19 @@ export const VAULTS: readonly string[] = [
   "CD3HR7WNGPDUGK5ITNMZSRM36O2IFJF3N4RFHOITP4DCXMVGHMANN3XR",
 ] as const;
 
-// Human-readable labels for the vaults above. Used by the APY-history poller
-// so historical rows are interpretable without joining to another table.
+// Vaults tracked by the APY-history poller. Kept separate from VAULTS (the
+// deposit/withdraw stabilization cycle) so polling scope can change without
+// affecting which vaults the cron moves funds on.
+export const APY_POLL_VAULTS: readonly string[] = [
+  "CCA2ZJP5BVRXYTQH4FAGHCAUMRYCXVC4CRYC2NXHWMR7TIVX36U7F5HR",
+] as const;
+
+// Human-readable labels used by the APY-history poller so historical rows are
+// interpretable without joining to another table.
 export const VAULT_NAMES: Record<string, string> = {
   CAEPJIHET2TBI2VCLJZI6QHMN366KUGNK4AOKE3YY7AOKMU4KX4RDRGB: "DeFindex-Vault-targetAPY",
   CB5YXWIDBQAOTTPEQE3SRNUFM2PTOXFHKGUWCBJJSF2GPW37DN725FDA: "DeFindex-Vault-controlAPY",
+  CCA2ZJP5BVRXYTQH4FAGHCAUMRYCXVC4CRYC2NXHWMR7TIVX36U7F5HR: "Meru",
   CD3HR7WNGPDUGK5ITNMZSRM36O2IFJF3N4RFHOITP4DCXMVGHMANN3XR: "DeFindex-Vault-variableAPY",
   CD7T34Y5SZ6MBEZDMXDIQWQ6JICO7TYH7E6DKZJ7BHXOMR2EQ65WYSZG: "DeFindex-Vault-boostAPY",
 };

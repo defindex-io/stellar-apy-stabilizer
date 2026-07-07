@@ -83,7 +83,7 @@ fn setup_with_vault(
         min_fee_bps: 10,
         max_fee_bps: 200,
     };
-    client.register_vault(&vault_admin, &vault_id, &config);
+    client.register_vault(&vault_id, &config);
     (client, admin, fee_manager, vault_admin, vault_id)
 }
 
@@ -125,7 +125,7 @@ fn test_register_vault() {
         min_fee_bps: 10,
         max_fee_bps: 200,
     };
-    client.register_vault(&vault_admin, &vault_id, &config);
+    client.register_vault(&vault_id, &config);
 
     let stored = client.get_vault_config(&vault_id);
     assert_eq!(stored.admin, vault_admin);
@@ -165,7 +165,7 @@ fn test_register_vault_already_registered() {
         max_fee_bps: 200,
     };
     // Second registration should panic.
-    client.register_vault(&vault_admin, &vault_id, &config);
+    client.register_vault(&vault_id, &config);
 }
 
 #[test]
@@ -183,7 +183,7 @@ fn test_register_vault_invalid_fee_bounds() {
         min_fee_bps: 300,  // min > max → invalid
         max_fee_bps: 100,
     };
-    client.register_vault(&vault_admin, &vault_id, &bad_config);
+    client.register_vault(&vault_id, &bad_config);
 }
 
 #[test]
@@ -306,7 +306,7 @@ fn test_register_vault_target_apy_accepts_zero_and_max() {
         min_fee_bps: 0,
         max_fee_bps: 100,
     };
-    client.register_vault(&vault_admin, &vault_zero, &config_zero);
+    client.register_vault(&vault_zero, &config_zero);
     assert_eq!(client.get_vault_config(&vault_zero).target_apy_bps, 0);
 
     let vault_max = env.register(MockVault, (&client.address,));
@@ -316,7 +316,7 @@ fn test_register_vault_target_apy_accepts_zero_and_max() {
         min_fee_bps: 0,
         max_fee_bps: 100,
     };
-    client.register_vault(&vault_admin, &vault_max, &config_max);
+    client.register_vault(&vault_max, &config_max);
     assert_eq!(client.get_vault_config(&vault_max).target_apy_bps, u32::MAX);
 }
 
@@ -513,8 +513,8 @@ fn test_vault_isolation() {
         max_fee_bps: 8000,
         min_fee_bps: 100,
     };
-    client.register_vault(&partner_a, &vault_a, &config_a);
-    client.register_vault(&partner_b, &vault_b, &config_b);
+    client.register_vault(&vault_a, &config_a);
+    client.register_vault(&vault_b, &config_b);
 
     let stored_a = client.get_vault_config(&vault_a);
     let stored_b = client.get_vault_config(&vault_b);
@@ -532,30 +532,6 @@ fn test_lock_fees_nonexistent_vault() {
     let (client, _, fee_manager) = setup(&env);
     let random_vault = Address::generate(&env);
     client.lock_fees(&fee_manager, &random_vault, &Some(100u32));
-}
-
-// ---------------------------------------------------------------------------
-// H1: register_vault enforces admin == config.admin
-// ---------------------------------------------------------------------------
-
-#[test]
-#[should_panic(expected = "Error(Contract, #3024)")]
-fn test_register_vault_admin_mismatch_rejected() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let (client, _admin, _fee_manager) = setup(&env);
-
-    let signer = Address::generate(&env);
-    let other = Address::generate(&env);
-    let vault_id = env.register(MockVault, (&client.address,));
-    let config = VaultConfig {
-        admin: other,
-        target_apy_bps: 500,
-        min_fee_bps: 10,
-        max_fee_bps: 200,
-    };
-    // signer != config.admin → AdminMismatch (#3024)
-    client.register_vault(&signer, &vault_id, &config);
 }
 
 // ---------------------------------------------------------------------------
@@ -656,7 +632,7 @@ mod integration_tests {
             min_fee_bps: 0,
         };
 
-        client.register_vault(&partner, &vault_id, &config);
+        client.register_vault(&vault_id, &config);
 
         let vault_client = defindex_vault::Client::new(&env, &vault_id);
         assert_eq!(vault_client.get_manager(), client.address);
@@ -681,7 +657,7 @@ mod integration_tests {
             max_fee_bps: 5000,
             min_fee_bps: 0,
         };
-        client.register_vault(&partner, &vault_id, &config);
+        client.register_vault(&vault_id, &config);
 
         client.unregister_vault(&vault_id);
 
@@ -704,7 +680,7 @@ mod integration_tests {
             max_fee_bps: 5000,
             min_fee_bps: 0,
         };
-        client.register_vault(&partner, &vault_id, &config);
+        client.register_vault(&vault_id, &config);
 
         // Lock fees with a new fee rate; with no strategies it should succeed
         client.lock_fees(&fee_manager, &vault_id, &Some(2000u32));
@@ -729,7 +705,7 @@ mod integration_tests {
             max_fee_bps: 5000,
             min_fee_bps: 0,
         };
-        client.register_vault(&partner, &vault_id, &config);
+        client.register_vault(&vault_id, &config);
 
         // With no strategies and no locked fees, distribute should succeed
         client.distribute_fees(&fee_manager, &vault_id);
@@ -750,7 +726,7 @@ mod integration_tests {
             max_fee_bps: 5000,
             min_fee_bps: 0,
         };
-        client.register_vault(&partner, &vault_id, &config);
+        client.register_vault(&vault_id, &config);
 
         let vault_client = defindex_vault::Client::new(&env, &vault_id);
 
@@ -782,7 +758,7 @@ mod integration_tests {
             max_fee_bps: 5000,
             min_fee_bps: 0,
         };
-        client.register_vault(&partner, &vault_id, &config);
+        client.register_vault(&vault_id, &config);
 
         let new_manager = Address::generate(&env);
         client.set_vault_manager(&vault_id, &new_manager);

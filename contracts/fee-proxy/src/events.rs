@@ -36,6 +36,16 @@ pub struct FeesDistributed {
 
 #[contractevent]
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FeesReleased {
+    #[topic]
+    pub vault: Address,
+    #[topic]
+    pub strategy: Address,
+    pub amount: i128,
+}
+
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ConfigUpdated {
     #[topic]
     pub vault: Address,

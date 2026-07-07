@@ -16,7 +16,7 @@ The architecture is sound: the proxy correctly leverages Soroban's direct-invoke
 
 Findings (post-fix):
 
-- **H1 — fixed in code.** `register_vault` now asserts `admin == config.admin` with a new `AdminMismatch` error.
+- **H1 — fixed in code.** `register_vault` now asserts `admin == config.admin` with a new `AdminMismatch` error. _(Update 2026-06-26: superseded by external-audit finding **B01** — the redundant `admin` parameter and the `AdminMismatch` variant were removed entirely; the signer is now `config.admin` directly via `config.admin.require_auth()`. Same invariant, smaller surface.)_
 - **M3 — fixed in code.** `rescue_orphan` added to boost-treasury, bounded by a `CampaignList` enumeration so it can only sweep tokens above what's tracked by active campaigns. New errors `AccountingCorrupted` / `InsufficientOrphanBalance`, new event `OrphanRescued`.
 - **L2, L3, L4, L5 — fixed in code.** Proxy-side `amount > 0` validation on `release_fees`; explicit `asset` param on `register_campaign` with `AssetMismatch` assertion; `transfer()` docstring updated; `register_vault` writes config to storage before the `set_manager` cross-contract call.
 - **M9 (single bot key), M7 (no global pause), M8 (max_fee_bps cap), M5 (instant role rotation), M6 (silent underflow) — risk-accepted by design.** Documented with rationale; the underlying vault enforces the actual caps (M8) and the bot architecture's recovery path makes single-key compromise non-fund-redirecting (M9).
@@ -24,7 +24,7 @@ Findings (post-fix):
 
 > **False-positive removed.** Almanax flagged a CRITICAL "constructor re-callable post-deployment" finding (`6710ced6-...`). After verification against [CAP-0058](https://github.com/stellar/stellar-protocol/blob/master/core/cap-0058.md), this is **not exploitable**: `__constructor` is host-reserved and may only be called by the Soroban host environment at creation time. Soroban SDK 22+ contracts inherit this guarantee without needing an explicit init-guard. The finding is dismissed.
 
-All fixes are in-tree, both contracts build clean (`stellar contract build`), and the full test suite passes (42 boost-treasury + 41 fee-proxy = 83 tests, including new coverage for `AdminMismatch`, `AssetMismatch`, `rescue_orphan`, and the `InvalidAmount` proxy-side check on `release_fees`).
+All fixes are in-tree, both contracts build clean (`stellar contract build`), and the full test suite passes (42 boost-treasury + 40 fee-proxy = 82 tests, including coverage for `AssetMismatch`, `rescue_orphan`, and the `InvalidAmount` proxy-side check on `release_fees`). _(The `AdminMismatch` test was removed alongside its error variant under external-audit finding B01; see the H1 note below.)_
 
 ---
 
@@ -53,7 +53,7 @@ All fixes are in-tree, both contracts build clean (`stellar contract build`), an
 
 | # | Severity | Title | Source | Contract | Status |
 |---|---|---|---|---|---|
-| H1 | HIGH | `register_vault` does not authenticate `config.admin` | internal | fee-proxy | **FIXED** — `admin == config.admin` asserted + new `AdminMismatch` error |
+| H1 | HIGH | `register_vault` does not authenticate `config.admin` | internal | fee-proxy | **FIXED** — initially via `admin == config.admin` + `AdminMismatch`; later simplified by **B01** (param removed, signer is `config.admin`) |
 | M9 | MEDIUM (risk-accepted) | Single `fee_manager` key can force max fee across all vaults | internal | fee-proxy | risk-accepted |
 | ~~M1~~ | DISMISSED | ~~Instance TTL not bumped on init or reads — admin DoS~~ | Almanax | both | dismissed (Protocol 23+) |
 | ~~M2~~ | DISMISSED | ~~Campaign persistent TTL can strand funds after 120 days~~ | Almanax | boost-treasury | dismissed (Protocol 23+) |
@@ -142,6 +142,8 @@ pub fn register_vault(env: Env, admin: Address, vault: Address, config: VaultCon
 ```
 
 New error variant `AdminMismatch = 3024`. New test `test_register_vault_admin_mismatch_rejected` verifies the panic; all existing tests continue to pass because they already pass `admin == config.admin`.
+
+> **Update 2026-06-26 (superseded by external-audit B01).** The equality-check approach above was chosen to preserve the function ABI. Since the contracts are being redeployed post-audit anyway, external finding **B01** took the cleaner route: the `admin` parameter is **removed** and the signer is `config.admin` directly (`config.admin.require_auth()`). The `AdminMismatch` variant (#3024) and `test_register_vault_admin_mismatch_rejected` were deleted as unreachable. The H1 invariant — "the future proxy controller must authenticate at registration" — is unchanged; only the surface is smaller. Signature is now `register_vault(env, vault, config)`.
 
 If a partner ever needs to register from key A but operate the proxy via key B, the flow is now: (1) rotate vault manager A→B via `vault.set_manager`, (2) call `proxy.register_vault(B, vault, config{admin=B})`. Two transactions, explicit role handoff, auditable on-chain.
 
@@ -504,7 +506,7 @@ Cheap to keep; used by off-chain monitoring. Fine as is.
 ## 7. Verdict and remediation gates
 
 **Fixed in this iteration (code-level changes, tests passing):**
-- H1 — `register_vault` asserts `admin == config.admin` (`AdminMismatch` #3024).
+- H1 — `register_vault` enforces that the future proxy controller authenticates at registration. (Originally `admin == config.admin` + `AdminMismatch` #3024; simplified by B01 to `config.admin.require_auth()` with the `admin` param and error variant removed.)
 - M3 — `rescue_orphan(token, to, amount)` on boost-treasury, bounded by `CampaignList` so it cannot drain tracked campaign budgets. New errors `AccountingCorrupted` (#4041), `InsufficientOrphanBalance` (#4032), new event `OrphanRescued`.
 - L2 — proxy-side `amount > 0` check on `release_fees` (`InvalidAmount` #3030).
 - L3 — `register_campaign` takes explicit `asset` parameter and asserts the vault's `get_assets()` reports the same address (`AssetMismatch` #4021).

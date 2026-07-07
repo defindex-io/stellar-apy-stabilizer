@@ -10,9 +10,9 @@ const PERSISTENT_LIFETIME_THRESHOLD: u32 = PERSISTENT_BUMP_AMOUNT - 20 * DAY_IN_
 #[derive(Clone)]
 pub enum DataKey {
     Admin,
-    PendingAdmin,
-    FeeManager,
-    VaultConfig(Address),
+    PendAdmin,
+    FeeMgr,
+    VaultCfg(Address),
 }
 
 #[contracttype]
@@ -34,7 +34,7 @@ pub fn extend_instance_ttl(env: &Env) {
 
 pub fn extend_vault_config_ttl(env: &Env, vault: &Address) {
     env.storage().persistent().extend_ttl(
-        &DataKey::VaultConfig(vault.clone()),
+        &DataKey::VaultCfg(vault.clone()),
         PERSISTENT_LIFETIME_THRESHOLD,
         PERSISTENT_BUMP_AMOUNT,
     );
@@ -53,33 +53,33 @@ pub fn set_admin(env: &Env, admin: &Address) {
     env.storage().instance().set(&DataKey::Admin, admin);
 }
 
-// --- PendingAdmin ---
+// --- PendAdmin ---
 
 pub fn get_pending_admin(env: &Env) -> Option<Address> {
-    env.storage().instance().get(&DataKey::PendingAdmin)
+    env.storage().instance().get(&DataKey::PendAdmin)
 }
 
 pub fn set_pending_admin(env: &Env, pending: &Address) {
-    env.storage().instance().set(&DataKey::PendingAdmin, pending);
+    env.storage().instance().set(&DataKey::PendAdmin, pending);
 }
 
 pub fn remove_pending_admin(env: &Env) {
-    env.storage().instance().remove(&DataKey::PendingAdmin);
+    env.storage().instance().remove(&DataKey::PendAdmin);
 }
 
-// --- FeeManager ---
+// --- FeeMgr ---
 
 pub fn get_fee_manager(env: &Env) -> Address {
     env.storage()
         .instance()
-        .get(&DataKey::FeeManager)
+        .get(&DataKey::FeeMgr)
         .unwrap()
 }
 
 pub fn set_fee_manager(env: &Env, fee_manager: &Address) {
     env.storage()
         .instance()
-        .set(&DataKey::FeeManager, fee_manager);
+        .set(&DataKey::FeeMgr, fee_manager);
 }
 
 // --- VaultConfig ---
@@ -88,7 +88,7 @@ pub fn get_vault_config(env: &Env, vault: &Address) -> Option<VaultConfig> {
     let config = env
         .storage()
         .persistent()
-        .get(&DataKey::VaultConfig(vault.clone()));
+        .get(&DataKey::VaultCfg(vault.clone()));
     if config.is_some() {
         extend_vault_config_ttl(env, vault);
     }
@@ -98,18 +98,18 @@ pub fn get_vault_config(env: &Env, vault: &Address) -> Option<VaultConfig> {
 pub fn set_vault_config(env: &Env, vault: &Address, config: &VaultConfig) {
     env.storage()
         .persistent()
-        .set(&DataKey::VaultConfig(vault.clone()), config);
+        .set(&DataKey::VaultCfg(vault.clone()), config);
     extend_vault_config_ttl(env, vault);
 }
 
 pub fn remove_vault_config(env: &Env, vault: &Address) {
     env.storage()
         .persistent()
-        .remove(&DataKey::VaultConfig(vault.clone()));
+        .remove(&DataKey::VaultCfg(vault.clone()));
 }
 
 pub fn has_vault_config(env: &Env, vault: &Address) -> bool {
     env.storage()
         .persistent()
-        .has(&DataKey::VaultConfig(vault.clone()))
+        .has(&DataKey::VaultCfg(vault.clone()))
 }

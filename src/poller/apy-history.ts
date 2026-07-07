@@ -2,7 +2,7 @@ import "dotenv/config";
 import {
   APY_POLL_INTERVAL_MS,
   APY_POLL_NETWORK,
-  VAULTS,
+  APY_POLL_VAULTS,
   VAULT_NAMES,
 } from "../constants";
 import { ensureApyHistoryTable, insertApySample } from "../helpers/db";
@@ -56,8 +56,8 @@ async function recordOneVault(vaultAddress: string): Promise<void> {
 }
 
 async function runTick(): Promise<void> {
-  log(`=== poll tick (${VAULTS.length} vaults) ===`);
-  for (const vault of VAULTS) {
+  log(`=== poll tick (${APY_POLL_VAULTS.length} vaults) ===`);
+  for (const vault of APY_POLL_VAULTS) {
     await recordOneVault(vault);
   }
 }

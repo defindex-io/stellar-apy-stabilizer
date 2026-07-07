@@ -220,6 +220,11 @@ require_u32 "max_fee_bps"    "$MAX_FEE_BPS"
 (( MIN_FEE_BPS <= MAX_FEE_BPS )) || die "min_fee_bps ($MIN_FEE_BPS) must be ≤ max_fee_bps ($MAX_FEE_BPS)"
 (( MAX_FEE_BPS <= 10000 ))       || die "max_fee_bps ($MAX_FEE_BPS) must be ≤ 10000"
 
+# register_vault now requires the signer to be config.admin (the contract calls
+# config.admin.require_auth()). If they differ, the tx cannot be authorized.
+[[ "$CONFIG_ADMIN" == "$SIGNER_PUBKEY" ]] || die "config.admin ($CONFIG_ADMIN) must equal the signer ($SIGNER_PUBKEY).
+  To operate the proxy from a different key, first hand the vault's Manager role to that key, then register from it."
+
 # Struct args are passed as JSON to `stellar contract invoke`.
 CONFIG_JSON=$(printf '{"admin":"%s","target_apy_bps":%s,"max_fee_bps":%s,"min_fee_bps":%s}' \
   "$CONFIG_ADMIN" "$TARGET_APY_BPS" "$MAX_FEE_BPS" "$MIN_FEE_BPS")
@@ -246,7 +251,6 @@ stellar contract invoke \
   --source-account "$SOURCE_ACCOUNT" \
   --network "$NETWORK" \
   -- register_vault \
-  --admin "$SIGNER_PUBKEY" \
   --vault "$VAULT" \
   --config "$CONFIG_JSON"
 

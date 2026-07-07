@@ -13,6 +13,5 @@ pub enum ContractError {
     FeeOutOfBounds = 3020,
     InvalidFeeBounds = 3021,
     NoPendingAdmin = 3023,
-    AdminMismatch = 3024,
     InvalidAmount = 3030,
 }

@@ -17,11 +17,7 @@ fn require_fee_manager_or_vault_admin(env: &Env, caller: &Address, vault: &Addre
         .unwrap_or_else(|| panic_with_error!(env, ContractError::VaultNotRegistered));
 
     let fee_manager = storage::get_fee_manager(env);
-    if *caller == fee_manager {
-        caller.require_auth();
-        return config;
-    }
-    if *caller == config.admin {
+    if *caller == fee_manager || *caller == config.admin {
         caller.require_auth();
         return config;
     }
@@ -139,25 +135,20 @@ impl FeeProxy {
 
     // --- Registration ---
 
-    /// Registers a vault with the proxy. `admin` is the signer and must be the
-    /// vault's current Manager (the vault's `set_manager` call below independently
-    /// enforces this). `admin` must equal `config.admin`; the proxy refuses to
-    /// register a vault where the signing partner and the future proxy-side
-    /// controller are different addresses, to prevent a partner from accidentally
-    /// (or maliciously) delegating proxy-side admin rights to a wrong address that
-    /// never authenticated.
+    /// Registers a vault with the proxy. The signer is `config.admin` — the
+    /// address that controls the vault through the proxy going forward — and must
+    /// also be the vault's current Manager (the vault's `set_manager` call below
+    /// independently enforces this). Requiring the signer to be `config.admin`
+    /// prevents a partner from accidentally (or maliciously, via a compromised
+    /// UI) delegating proxy-side admin rights to an address that never
+    /// authenticated.
     pub fn register_vault(
         env: Env,
-        admin: Address,
         vault: Address,
         config: VaultConfig,
     ) {
         extend_instance_ttl(&env);
-        admin.require_auth();
-
-        if admin != config.admin {
-            panic_with_error!(&env, ContractError::AdminMismatch);
-        }
+        config.admin.require_auth();
 
         if storage::has_vault_config(&env, &vault) {
             panic_with_error!(&env, ContractError::VaultAlreadyRegistered);
@@ -269,8 +260,10 @@ impl FeeProxy {
             &env,
             &vault,
             "release_fees",
-            vec![&env, strategy.into_val(&env), amount.into_val(&env)],
+            vec![&env, strategy.clone().into_val(&env), amount.into_val(&env)],
         );
+
+        events::FeesReleased { vault, strategy, amount }.publish(&env);
     }
 
     // --- Config updates ---
