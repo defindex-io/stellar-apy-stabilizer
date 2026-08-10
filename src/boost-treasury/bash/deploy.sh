@@ -42,6 +42,14 @@ readonly TESTNET_XLM_SAC="CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCY
 readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly WORKSPACE_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 readonly WASM_PATH="$WORKSPACE_ROOT/target/wasm32v1-none/release/boost_treasury.wasm"
+readonly CONTRACTS_KEY="boost-treasury"
+
+# Inclusion-fee bid in stroops. The CLI default (100) is below the network
+# minimum during mainnet fee surges and fails with txINSUFFICIENT_FEE even
+# though the account is well funded. 0.1 XLM gives ample headroom; the
+# resource fee is computed from simulation and added on top of this.
+# Override for exceptional congestion with:  INCLUSION_FEE=<stroops> ./deploy.sh
+readonly DEFAULT_INCLUSION_FEE=1000000
 
 # --- Helpers ---
 
@@ -189,13 +197,18 @@ echo
 ADMIN=$(resolve_with_default   "Admin address"   "$DEPLOYER_PUBKEY" "${3-__UNSET__}")
 MANAGER=$(resolve_required     "Manager address"                    "${4-__UNSET__}")
 
+INCLUSION_FEE="${INCLUSION_FEE:-$DEFAULT_INCLUSION_FEE}"
+[[ "$INCLUSION_FEE" =~ ^[1-9][0-9]*$ ]] \
+  || die "inclusion fee must be a positive integer, got '$INCLUSION_FEE'"
+
 echo
 echo "──────────────────────────────────────"
-echo " network:      $NETWORK"
-echo " source:       $SOURCE_ACCOUNT ($DEPLOYER_PUBKEY)"
-echo " wasm:         $WASM_PATH"
-echo " admin:        $ADMIN"
-echo " manager:      $MANAGER"
+echo " network:        $NETWORK"
+echo " source:         $SOURCE_ACCOUNT ($DEPLOYER_PUBKEY)"
+echo " wasm:           $WASM_PATH"
+echo " admin:          $ADMIN"
+echo " manager:        $MANAGER"
+echo " inclusion fee:  $INCLUSION_FEE stroops"
 echo "──────────────────────────────────────"
 
 if [[ "$ADMIN" != "$DEPLOYER_PUBKEY" ]]; then
@@ -211,9 +224,22 @@ DEPLOYED_ADDRESS="$(stellar contract deploy \
   --wasm "$WASM_PATH" \
   --source-account "$SOURCE_ACCOUNT" \
   --network "$NETWORK" \
+  --inclusion-fee "$INCLUSION_FEE" \
   -- \
   --admin "$ADMIN" \
   --manager "$MANAGER")"
 
+readonly CONTRACTS_FILE="$WORKSPACE_ROOT/$NETWORK.contracts.json"
+
 echo
 echo "✅ Deployed BoostTreasury: $DEPLOYED_ADDRESS"
+echo
+echo "⚠  Not written to disk — update the contracts file manually so the other"
+echo "   scripts pick up the new address:"
+echo
+echo "   file:  $CONTRACTS_FILE"
+echo "   key:   \"$CONTRACTS_KEY\": \"$DEPLOYED_ADDRESS\""
+echo
+echo "   one-liner:"
+echo "     jq '.\"$CONTRACTS_KEY\" = \"$DEPLOYED_ADDRESS\"' \"$CONTRACTS_FILE\" > /tmp/contracts.json \\"
+echo "       && mv /tmp/contracts.json \"$CONTRACTS_FILE\""
