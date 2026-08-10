@@ -50,6 +50,13 @@ readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly WORKSPACE_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 readonly BOOST_TREASURY_KEY="boost-treasury"
 
+# Inclusion-fee bid in stroops. The CLI default (100) is below the network
+# minimum during mainnet fee surges and fails with txINSUFFICIENT_FEE even
+# though the account is well funded. 0.1 XLM gives ample headroom; the
+# resource fee is computed from simulation and added on top of this.
+# Override for exceptional congestion with:  INCLUSION_FEE=<stroops> ./transfer.sh
+readonly DEFAULT_INCLUSION_FEE=1000000
+
 # --- Helpers ---
 
 die() { echo "error: $*" >&2; exit 1; }
@@ -209,6 +216,9 @@ TO=$(resolve_required     "Destination address (recipient)"    "${5-__UNSET__}")
 
 require_positive_i128 "amount" "$AMOUNT"
 
+INCLUSION_FEE="${INCLUSION_FEE:-$DEFAULT_INCLUSION_FEE}"
+require_positive_i128 "inclusion fee" "$INCLUSION_FEE"
+
 echo
 echo "──────────────────────────────────────"
 echo " network:         $NETWORK"
@@ -217,6 +227,7 @@ echo " boost-treasury:  $BOOST_TREASURY_ID"
 echo " vault:           $VAULT"
 echo " amount:          $AMOUNT"
 echo " to:              $TO"
+echo " inclusion fee:   $INCLUSION_FEE stroops"
 echo "──────────────────────────────────────"
 
 read -rp "Transfer now? [y/N] " confirm
@@ -226,6 +237,7 @@ stellar contract invoke \
   --id "$BOOST_TREASURY_ID" \
   --source-account "$SOURCE_ACCOUNT" \
   --network "$NETWORK" \
+  --inclusion-fee "$INCLUSION_FEE" \
   -- transfer \
   --vault "$VAULT" \
   --amount "$AMOUNT" \
