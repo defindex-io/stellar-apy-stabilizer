@@ -14,4 +14,9 @@ pub enum ContractError {
     InvalidFeeBounds = 3021,
     NoPendingAdmin = 3023,
     InvalidAmount = 3030,
+    // Appended after the original variants; codes are explicit so nothing shifts.
+    /// `register_vault`: the vault's Manager is already this proxy (F-05).
+    VaultManagedByProxy = 3012,
+    /// `register_vault`: `config.admin` is not the vault's current Manager.
+    NotVaultManager = 3013,
 }

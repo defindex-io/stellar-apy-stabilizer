@@ -45,6 +45,24 @@ fn call_vault(env: &Env, vault: &Address, fn_name: &str, args: soroban_sdk::Vec<
     env.invoke_contract::<soroban_sdk::Val>(vault, &Symbol::new(env, fn_name), args);
 }
 
+fn get_vault_manager(env: &Env, vault: &Address) -> Address {
+    env.invoke_contract::<Address>(vault, &Symbol::new(env, "get_manager"), vec![env])
+}
+
+/// The vault's own `set_manager` check is not enough on its own: if the
+/// vault's Manager is already this proxy, the proxy's call below authorizes
+/// itself and any caller could claim the vault (F-05). So the proxy checks the
+/// current Manager itself before handing the role over.
+fn require_config_admin_is_vault_manager(env: &Env, vault: &Address, config_admin: &Address) {
+    let current_manager = get_vault_manager(env, vault);
+    if current_manager == env.current_contract_address() {
+        panic_with_error!(env, ContractError::VaultManagedByProxy);
+    }
+    if current_manager != *config_admin {
+        panic_with_error!(env, ContractError::NotVaultManager);
+    }
+}
+
 #[contract]
 pub struct FeeProxy;
 
@@ -137,11 +155,12 @@ impl FeeProxy {
 
     /// Registers a vault with the proxy. The signer is `config.admin` — the
     /// address that controls the vault through the proxy going forward — and must
-    /// also be the vault's current Manager (the vault's `set_manager` call below
-    /// independently enforces this). Requiring the signer to be `config.admin`
-    /// prevents a partner from accidentally (or maliciously, via a compromised
-    /// UI) delegating proxy-side admin rights to an address that never
-    /// authenticated.
+    /// also be the vault's current Manager. The proxy reads `get_manager` and
+    /// enforces this itself (`NotVaultManager`), and rejects a vault whose
+    /// Manager is already the proxy (`VaultManagedByProxy`). Requiring the
+    /// signer to be `config.admin` prevents a partner from accidentally (or
+    /// maliciously, via a compromised UI) delegating proxy-side admin rights to
+    /// an address that never authenticated.
     pub fn register_vault(
         env: Env,
         vault: Address,
@@ -155,6 +174,7 @@ impl FeeProxy {
         }
 
         validate_fee_bounds(&env, config.min_fee_bps, config.max_fee_bps);
+        require_config_admin_is_vault_manager(&env, &vault, &config.admin);
 
         // Write proxy-side config first so the cross-contract call below is the
         // last externally-observable step; if `set_manager` ever fails the whole

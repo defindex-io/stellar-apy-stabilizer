@@ -76,7 +76,7 @@ fn setup_with_vault(
     let (client, admin, fee_manager) = setup(env);
 
     let vault_admin = Address::generate(env);
-    let vault_id = env.register(MockVault, (&client.address,));
+    let vault_id = env.register(MockVault, (&vault_admin,));
     let config = VaultConfig {
         admin: vault_admin.clone(),
         target_apy_bps: 500,
@@ -117,8 +117,8 @@ fn test_register_vault() {
     let (client, _admin, _fee_manager) = setup(&env);
 
     let vault_admin = Address::generate(&env);
-    // Register mock vault with proxy as initial manager so set_manager auth passes.
-    let vault_id = env.register(MockVault, (&client.address,));
+    // The partner is the vault's Manager before handing it to the proxy.
+    let vault_id = env.register(MockVault, (&vault_admin,));
     let config = VaultConfig {
         admin: vault_admin.clone(),
         target_apy_bps: 500,
@@ -176,7 +176,7 @@ fn test_register_vault_invalid_fee_bounds() {
     let (client, _admin, _fee_manager) = setup(&env);
 
     let vault_admin = Address::generate(&env);
-    let vault_id = env.register(MockVault, (&client.address,));
+    let vault_id = env.register(MockVault, (&vault_admin,));
     let bad_config = VaultConfig {
         admin: vault_admin.clone(),
         target_apy_bps: 500,
@@ -184,6 +184,50 @@ fn test_register_vault_invalid_fee_bounds() {
         max_fee_bps: 100,
     };
     client.register_vault(&vault_id, &bad_config);
+}
+
+// ---------------------------------------------------------------------------
+// F-05: register_vault must check the vault's current Manager itself
+// ---------------------------------------------------------------------------
+
+#[test]
+#[should_panic(expected = "Error(Contract, #3012)")]
+fn test_register_vault_rejects_vault_already_managed_by_proxy() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, _fee_manager) = setup(&env);
+
+    // Manager pointed at the proxy by hand, with no proxy-side config.
+    let vault_id = env.register(MockVault, (&client.address,));
+    let stranger = Address::generate(&env);
+    let config = VaultConfig {
+        admin: stranger,
+        target_apy_bps: 500,
+        min_fee_bps: 10,
+        max_fee_bps: 200,
+    };
+    client.register_vault(&vault_id, &config);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #3013)")]
+fn test_register_vault_rejects_config_admin_not_current_manager() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, _fee_manager) = setup(&env);
+
+    let partner = Address::generate(&env);
+    let vault_id = env.register(MockVault, (&partner,));
+    let stranger = Address::generate(&env);
+    let config = VaultConfig {
+        admin: stranger,
+        target_apy_bps: 500,
+        min_fee_bps: 10,
+        max_fee_bps: 200,
+    };
+    // mock_all_auths would satisfy the vault's own Manager check, so this only
+    // fails if the proxy compares config.admin against get_manager itself.
+    client.register_vault(&vault_id, &config);
 }
 
 #[test]
@@ -299,7 +343,7 @@ fn test_register_vault_target_apy_accepts_zero_and_max() {
 
     let vault_admin = Address::generate(&env);
 
-    let vault_zero = env.register(MockVault, (&client.address,));
+    let vault_zero = env.register(MockVault, (&vault_admin,));
     let config_zero = VaultConfig {
         admin: vault_admin.clone(),
         target_apy_bps: 0,
@@ -309,7 +353,7 @@ fn test_register_vault_target_apy_accepts_zero_and_max() {
     client.register_vault(&vault_zero, &config_zero);
     assert_eq!(client.get_vault_config(&vault_zero).target_apy_bps, 0);
 
-    let vault_max = env.register(MockVault, (&client.address,));
+    let vault_max = env.register(MockVault, (&vault_admin,));
     let config_max = VaultConfig {
         admin: vault_admin.clone(),
         target_apy_bps: u32::MAX,
@@ -498,8 +542,8 @@ fn test_vault_isolation() {
 
     let partner_a = Address::generate(&env);
     let partner_b = Address::generate(&env);
-    let vault_a = env.register(MockVault, (&client.address,));
-    let vault_b = env.register(MockVault, (&client.address,));
+    let vault_a = env.register(MockVault, (&partner_a,));
+    let vault_b = env.register(MockVault, (&partner_b,));
 
     let config_a = VaultConfig {
         admin: partner_a.clone(),
@@ -640,6 +684,60 @@ mod integration_tests {
         let stored = client.get_vault_config(&vault_id);
         assert_eq!(stored.admin, partner);
         assert_eq!(stored.target_apy_bps, 400);
+    }
+
+    /// F-05 exploit shape against the real vault: Manager already points at the
+    /// proxy and the proxy has no config. Only the stranger signs; the vault's
+    /// `set_manager` Manager check is satisfied by the proxy being the direct
+    /// invoker, so before the fix the stranger became `config.admin`.
+    #[test]
+    #[should_panic(expected = "Error(Contract, #3012)")]
+    fn test_integration_register_vault_rejects_vault_already_managed_by_proxy() {
+        use soroban_sdk::testutils::{MockAuth, MockAuthInvoke};
+        use soroban_sdk::IntoVal;
+
+        let env = Env::default();
+        env.mock_all_auths();
+        let (client, _admin, _fee_manager) = setup(&env);
+        let vault_id = setup_real_vault(&env, &client.address);
+
+        let stranger = Address::generate(&env);
+        let config = VaultConfig {
+            admin: stranger.clone(),
+            target_apy_bps: 400,
+            max_fee_bps: 5000,
+            min_fee_bps: 0,
+        };
+
+        // Replace the blanket mock with the stranger's signature only.
+        env.mock_auths(&[MockAuth {
+            address: &stranger,
+            invoke: &MockAuthInvoke {
+                contract: &client.address,
+                fn_name: "register_vault",
+                args: (vault_id.clone(), config.clone()).into_val(&env),
+                sub_invokes: &[],
+            },
+        }]);
+        client.register_vault(&vault_id, &config);
+    }
+
+    #[test]
+    #[should_panic(expected = "Error(Contract, #3013)")]
+    fn test_integration_register_vault_rejects_config_admin_not_current_manager() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (client, _admin, _fee_manager) = setup(&env);
+        let partner = Address::generate(&env);
+        let vault_id = setup_real_vault(&env, &partner);
+
+        let config = VaultConfig {
+            admin: Address::generate(&env),
+            target_apy_bps: 400,
+            max_fee_bps: 5000,
+            min_fee_bps: 0,
+        };
+        client.register_vault(&vault_id, &config);
     }
 
     #[test]
