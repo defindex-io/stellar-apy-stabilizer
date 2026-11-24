@@ -14,7 +14,7 @@
     "test:stabilizer": "tsx --test src/stabilizer/__tests__/fee-stabilizer.test.ts"
   },
   "dependencies": {
-    "@stellar/stellar-sdk": "^15.1.0",
+    "@stellar/stellar-sdk": "^17.4.0",
     "dotenv": "^17.4.2",
     "pg": "^8.20.0"
   },

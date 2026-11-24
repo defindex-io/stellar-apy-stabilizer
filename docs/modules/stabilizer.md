@@ -2,7 +2,7 @@
 
 > **Living document.** Read this before modifying the module. Update it in the same change whenever the module's behavior, endpoints, files, or dependencies change.
 
-**Source:** `src/stabilizer/` · **Last verified:** 2026-09-04
+**Source:** `src/stabilizer/` · **Last verified:** 2026-11-24
 
 ## Purpose
 
@@ -56,7 +56,7 @@ Exported functions worth knowing:
 - **DeFindex Stellar router** — `exec` for batched simulation. Mainnet `CDAW42JDSDEI2DXEPP4E7OAYNCRUA4LGCZHXCJ4BV5WVI4O4P77FO4UV` (`constants.ts:16`), sourced from `defindex-api/src/helpers/constants.ts` per the comment at `constants.ts:14`.
 - **DeFindex indexer Postgres** — read-only against `parsed.v_vault_apy`, `parsed.vault_role_change`, `parsed.vault_transaction`, `parsed.vault_transaction_asset`, `parsed.vault_strategy_report`.
 - **Stellar Soroban RPC** — `SOROBAN_RPC` (`stellar-rpc.ts:31`).
-- npm: `@stellar/stellar-sdk`, `pg`, `dotenv` (`package.json:16`).
+- npm: `@stellar/stellar-sdk` ^17.4.0 (needs Node >=22.12.0), `pg`, `dotenv` (`package.json:16`).
 - Internal: `src/helpers/log.ts` for `log` and `sleep` (see [shared.md](shared.md)).
 
 Env vars: `SOROBAN_RPC`, `INDEXER_DATABASE_URL`, `FEE_MANAGER_SECRET_KEY` are required and enforced by `preflight()` (`cron.ts:20`). Optional: `INDEXER_DATABASE_SSL` (`indexer-db.ts:21`), `FEE_PROXY_ADDRESS_MAINNET` (`constants.ts:8`), `VAULT_OPS_DRY_RUN` (`constants.ts:40`), `STABILIZER_INTERVAL_MS` (`constants.ts:43`).
@@ -80,4 +80,4 @@ Env vars: `SOROBAN_RPC`, `INDEXER_DATABASE_URL`, `FEE_MANAGER_SECRET_KEY` are re
 - 16 `node:test` cases in `__tests__/fee-stabilizer.test.ts`, covering `calculateRequiredFee`, `shouldAdjust` (including both sides of the dead-zone boundary at `:44` and `:47`) and `applyRateLimit`.
 - Run: `pnpm test:stabilizer` (`package.json:14`). No env, DB or network needed.
 - **Gap:** everything with I/O is untested. `processVault`, `calculateLiveGrossApy`, all three SQL queries and `signAndSubmit` have no coverage. There is no mocking harness in the repo, so new control-loop logic should be pushed into pure functions in `fee-stabilizer.ts` where it can be tested.
-- Per `docs/STABILIZER.md:262`, do not gate on `tsc --noEmit`; the repo runs through `tsx` and the Stellar SDK's transitive declarations do not always resolve cleanly.
+- Per `docs/STABILIZER.md:262`, do not gate on `tsc --noEmit`; the repo runs through `tsx` and has no `tsconfig.json`. On SDK 17.4.0 an ad-hoc `tsc --noEmit --module nodenext --moduleResolution nodenext --types node` over `src/` passes, with or without `--skipLibCheck`.

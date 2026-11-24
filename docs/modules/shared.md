@@ -2,7 +2,7 @@
 
 > **Living document.** Read this before modifying the module. Update it in the same change whenever the module's behavior, endpoints, files, or dependencies change.
 
-**Source:** `src/helpers/`, `src/constants/` · **Last verified:** 2026-09-04
+**Source:** `src/helpers/`, `src/constants/` · **Last verified:** 2026-11-24
 
 ## Purpose
 
@@ -37,7 +37,7 @@ Constants worth knowing (`constants/index.ts`): `VAULTS` (four addresses, `:3`),
 
 ## Dependencies
 
-- npm: `@stellar/stellar-sdk`, `pg` (`package.json:16`).
+- npm: `@stellar/stellar-sdk` ^17.4.0 (needs Node >=22.12.0), `pg` (`package.json:16`).
 - Env: `DATABASE_URL` (`helpers/db.ts:7`), `SOROBAN_RPC` (`helpers/stellar.ts:11`), `STELLAR_SECRET_KEY` (`helpers/stellar.ts:14`). None of the three appears in `.env.example`.
 - Consumed by [poller.md](poller.md) (`log`, `db`, constants), [vault-cron.md](vault-cron.md) (all of it), and [stabilizer.md](stabilizer.md) (`log` only).
 
