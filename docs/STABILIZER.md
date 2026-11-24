@@ -44,7 +44,7 @@ recorded as `action: "error"` — they do not abort the cycle.
 
 ## Prerequisites
 
-- Node 20+ (the bot uses Node's built-in `node:test` runner for unit tests)
+- Node 22.12+ (`@stellar/stellar-sdk` 17 declares `engines.node >=22.12.0`; unit tests use Node's built-in `node:test` runner)
 - [pnpm](https://pnpm.io/installation) (this repo's TypeScript side uses pnpm)
 - [PM2](https://pm2.keymetrics.io/) for production supervision: `npm i -g pm2`
 - **Read-only Postgres role** on the DeFindex indexer database
@@ -260,10 +260,10 @@ issue is worth fixing — managed Postgres usually exposes a TCP keepalive
 setting that helps.
 
 **Tests fail with a stellar-sdk type error**
-Run `pnpm test:stabilizer`, not `tsc`. The repo uses `tsx` at runtime and
-does not depend on a clean `tsc --noEmit` run (the Stellar SDK ships
-transitive type declarations that aren't always resolvable; the runtime
-behavior is correct). If the unit tests pass, the code is fine.
+Run `pnpm test:stabilizer`, not `tsc`. The repo uses `tsx` at runtime, has no
+`tsconfig.json` and does not gate on `tsc --noEmit`. Since `@stellar/stellar-sdk`
+17 the SDK's declarations resolve without `--skipLibCheck` (15.x's did not, e.g.
+missing `urijs`/`json-schema` types). If the unit tests pass, the code is fine.
 
 ---
 

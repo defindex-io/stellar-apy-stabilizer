@@ -12,7 +12,7 @@ No HTTP server. Everything here is a contract, a long-running process, or a CLI 
 ## Stack
 
 - Rust + `soroban-sdk` 25.3.1, Cargo workspace over `contracts/*` (`Cargo.toml:2`). Release profile tuned for WASM size (`Cargo.toml:8`).
-- TypeScript on Node, run through `tsx` (`package.json:24`), package manager pnpm (`pnpm-workspace.yaml:1`, `docs/STABILIZER.md:48`). Deps: `@stellar/stellar-sdk`, `pg`, `dotenv` (`package.json:16`).
+- TypeScript on Node >=22.12.0, run through `tsx` (`package.json:24`), package manager pnpm (`pnpm-workspace.yaml:1`, `docs/STABILIZER.md:48`). Deps: `@stellar/stellar-sdk` ^17.4.0, `pg`, `dotenv` (`package.json:16`). The SDK sets the Node floor: its CommonJS build `require()`s ESM-only deps, which plain Node below 22.12 rejects with `ERR_REQUIRE_ESM` (`docs/STABILIZER.md:47`).
 - Bash + Stellar CLI for deploys and admin operations.
 
 ## Layout
